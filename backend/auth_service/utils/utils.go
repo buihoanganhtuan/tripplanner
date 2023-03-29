@@ -66,6 +66,15 @@ func CheckEmailFormat(email string) bool {
 	return err == nil
 }
 
+func CheckUsername(username string) bool {
+	for _, c := range username {
+		if !isUpper(c) && !isLower(c) && !isDigit(c) {
+			return false
+		}
+	}
+	return len(username) > 0 && len(username) <= 30
+}
+
 func isUpper(c rune) bool {
 	return c >= 'A' && c <= 'Z'
 }
