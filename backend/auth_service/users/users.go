@@ -15,6 +15,19 @@ import (
 	"github.com/buihoanganhtuan/tripplanner/backend/auth_service/utils"
 )
 
+var fileServer = http.StripPrefix("/users", http.FileServer(http.Dir("./users/assets/")))
+
+func UsersHandler(w http.ResponseWriter, rq *http.Request) {
+	switch rq.Method {
+	case http.MethodGet:
+		fileServer.ServeHTTP(w, rq)
+	case http.MethodPost:
+		ErrorHandler(usersPostHandler)(w, rq)
+	default:
+		http.NotFound(w, rq)
+	}
+}
+
 func ErrorHandler(f func(w http.ResponseWriter, rq *http.Request) (error, int)) http.HandlerFunc {
 	return func(w http.ResponseWriter, rq *http.Request) {
 		err, statusCode := f(w, rq)
@@ -25,13 +38,13 @@ func ErrorHandler(f func(w http.ResponseWriter, rq *http.Request) (error, int)) 
 	}
 }
 
-func UsersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
+func usersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
 	// Fetch all necessary environment variables
-	ev := &utils.EnvironmentVariableMap{}
-	ev.Fetch("PQ_USERNAME", "PQ_PASSWORD", "PQ_AUTH_DBNAME", "PQ_AUTH_TABLENAME")
-	ev.Fetch("SENDER_GMAIL_ACCOUNT", "SENDER_GMAIL_PASSWORD")
-	if ev.Err() != nil {
-		return fmt.Errorf("environmental variable error: %v", ev.Err()), http.StatusInternalServerError
+	env := &utils.EnvironmentVariableMap{}
+	env.Fetch("PQ_USERNAME", "PQ_PASSWORD", "PQ_AUTH_DBNAME", "PQ_AUTH_TABLENAME")
+	env.Fetch("SENDER_GMAIL_ACCOUNT", "SENDER_GMAIL_PASSWORD")
+	if env.Err() != nil {
+		return fmt.Errorf("environmental variable error: %v", env.Err()), http.StatusInternalServerError
 	}
 
 	// Parse HTTP Form contained in Body
@@ -51,22 +64,22 @@ func UsersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
 	)
 
 	if !utils.CheckPasswordStrength(password) || !utils.CheckEmailFormat(email) || !utils.CheckUsername(uname) {
-		return fmt.Errorf("invalid email: %v or username: %v or password: %v", email, uname, password), http.StatusBadRequest
+		return fmt.Errorf("invalid email: %s or username: %s or password: %s", email, uname, password), http.StatusBadRequest
 	}
 
 	// User identity conflict check
 	db, err := sql.Open("postgres", fmt.Sprintf("username=%s password=%s dbname=%s sslmode=disabled",
-		ev.Var("PQ_USERNAME"),
-		ev.Var("PQ_PASSWORD"),
-		ev.Var("PQ_AUTH_DBNAME")))
+		env.Var("PQ_USERNAME"),
+		env.Var("PQ_PASSWORD"),
+		env.Var("PQ_AUTH_DBNAME")))
 	defer db.Close()
 	err = db.Ping()
 	if err != nil {
-		return fmt.Errorf("database connection error: %v", err), http.StatusInternalServerError
+		return fmt.Errorf("database connection error: %s", err), http.StatusInternalServerError
 	}
 
 	rows, err := db.Query("SELECT email, verified, token_expiration FROM ? WHERE username = ? OR email = ? AS count",
-		ev.Var("PQ_AUTH_TABLENAME"),
+		env.Var("PQ_AUTH_TABLENAME"),
 		uname,
 		email)
 	const datetimeFormat = "2020-12-24 23:59:00"
@@ -80,16 +93,16 @@ func UsersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
 		}
 		if ver || t.Before(time.Now()) {
 			if em == email {
-				return fmt.Errorf("email %v already exist", email), http.StatusBadRequest
+				return fmt.Errorf("email %s already exist", email), http.StatusBadRequest
 			}
-			return fmt.Errorf("username %v already exist", uname), http.StatusBadRequest
+			return fmt.Errorf("username %s already exist", uname), http.StatusBadRequest
 		}
 	}
 
 	// Hash password and insert hashed password to database
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {
-		return fmt.Errorf("fail to generate hash for password %v", err), http.StatusInternalServerError
+		return fmt.Errorf("fail to generate hash for password %s", err), http.StatusInternalServerError
 	}
 
 	rand.Seed(time.Now().Unix())
@@ -101,7 +114,7 @@ func UsersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
 
 	now := time.Now().In(time.UTC)
 	_, err = db.Exec("INSERT INTO ?(email, password, joined_date, validation_token, token_expiration, verified) VALUES(?, ?, ?, ?, ?, ?)",
-		ev.Var("PQ_AUTH_TABLENAME"),
+		env.Var("PQ_AUTH_TABLENAME"),
 		email,
 		string(hash),
 		now.Format(datetimeFormat),
@@ -109,12 +122,12 @@ func UsersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
 		now.Add(time.Duration(24*3600*1_000_000_000)).Format(datetimeFormat),
 		"False")
 	if err != nil {
-		return fmt.Errorf("fail to insert new user into database: %v", err), http.StatusInternalServerError
+		return fmt.Errorf("fail to insert new user into database: %s", err), http.StatusInternalServerError
 	}
 
 	// Send confirmation email to user and redirect user to /users/confirmation/username=&token=
-	from := ev.Var("SENDER_GMAIL_ACCOUNT")
-	pass := ev.Var("SENDER_GMAIL_PASSWORD")
+	from := env.Var("SENDER_GMAIL_ACCOUNT")
+	pass := env.Var("SENDER_GMAIL_PASSWORD")
 	to := []string{email}
 	sub := "Account confirmation at TripPlanner"
 	msg := fmt.Sprintf(`Thank you for signing up to Trip Planner.
@@ -138,7 +151,7 @@ func UsersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
 	auth := smtp.PlainAuth("", from, pass, "smtp.gmail.com")
 	err = smtp.SendMail("smtp.gmail.com", auth, from, to, []byte(body))
 	if err != nil {
-		return fmt.Errorf("error sending confirmation email: %v", err), http.StatusInternalServerError
+		return fmt.Errorf("error sending confirmation email: %s", err), http.StatusInternalServerError
 	}
 
 	w.Header().Set("Location", fmt.Sprintf("http://localhost/confirmation?user=%s", uname))
