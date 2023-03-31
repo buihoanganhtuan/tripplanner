@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-// Manager type to manage environment variables
+// unsafe manager type to manage environment variables
 // Attempting to get a variable via Var() when the manager is in error state or
 // without fetching the variable first via Fetch() will result in a panic
 type EnvironmentVariableMap struct {
@@ -14,34 +14,34 @@ type EnvironmentVariableMap struct {
 	err    error
 }
 
-func (ev *EnvironmentVariableMap) Fetch(names ...string) {
-	if ev.err != nil {
+func (env *EnvironmentVariableMap) Fetch(names ...string) {
+	if env.err != nil {
 		return
 	}
 	for _, name := range names {
-		if _, exist := ev.varMap[name]; exist {
+		if _, exist := env.varMap[name]; exist {
 			continue
 		}
 		if val, ok := os.LookupEnv(name); ok {
-			ev.varMap[name] = val
+			env.varMap[name] = val
 			continue
 		}
-		ev.err = fmt.Errorf("environment variable %v is unset", name)
+		env.err = fmt.Errorf("environment variable %v is unset", name)
 	}
 }
 
-func (ev *EnvironmentVariableMap) Var(name string) string {
-	if _, exist := ev.varMap[name]; ev.err != nil || !exist {
-		if ev.err != nil {
-			panic(ev.err)
+func (env *EnvironmentVariableMap) Var(name string) string {
+	if _, exist := env.varMap[name]; env.err != nil || !exist {
+		if env.err != nil {
+			panic(env.err)
 		}
 		panic(fmt.Errorf("environmental variable %v has not been fetched", name))
 	}
-	return ev.varMap[name]
+	return env.varMap[name]
 }
 
-func (ev *EnvironmentVariableMap) Err() error {
-	return ev.err
+func (env *EnvironmentVariableMap) Err() error {
+	return env.err
 }
 
 func CheckPasswordStrength(passwd string) bool {

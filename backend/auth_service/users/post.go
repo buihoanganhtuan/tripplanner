@@ -1,9 +1,7 @@
 package users
 
 import (
-	"database/sql"
 	"fmt"
-	"log"
 	"math/rand"
 	"net/http"
 	"net/smtp"
@@ -12,37 +10,22 @@ import (
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/buihoanganhtuan/tripplanner/backend/auth_service/utils"
+	constants "github.com/buihoanganhtuan/tripplanner/backend/auth_service/_constants"
+	utils "github.com/buihoanganhtuan/tripplanner/backend/auth_service/_utils"
 )
 
-var fileServer = http.StripPrefix("/users", http.FileServer(http.Dir("./users/assets/")))
+var usersPostHandler = ErrorHandler(_usersPostHandler)
 
-func UsersHandler(w http.ResponseWriter, rq *http.Request) {
-	switch rq.Method {
-	case http.MethodGet:
-		fileServer.ServeHTTP(w, rq)
-	case http.MethodPost:
-		ErrorHandler(usersPostHandler)(w, rq)
-	default:
-		http.NotFound(w, rq)
-	}
-}
+const (
+	gmailAccVarName    = "SENDER_GMAIL_ACCOUNT"
+	gmailPwdVarName    = "SENDER_GMAIL_PASSWORD"
+	pqAuthTableVarName = "PQ_AUTH_TABLENAME"
+)
 
-func ErrorHandler(f func(w http.ResponseWriter, rq *http.Request) (error, int)) http.HandlerFunc {
-	return func(w http.ResponseWriter, rq *http.Request) {
-		err, statusCode := f(w, rq)
-		if err != nil {
-			w.WriteHeader(statusCode)
-			log.Println(err)
-		}
-	}
-}
-
-func usersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
+func _usersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
 	// Fetch all necessary environment variables
 	env := &utils.EnvironmentVariableMap{}
-	env.Fetch("PQ_USERNAME", "PQ_PASSWORD", "PQ_AUTH_DBNAME", "PQ_AUTH_TABLENAME")
-	env.Fetch("SENDER_GMAIL_ACCOUNT", "SENDER_GMAIL_PASSWORD")
+	env.Fetch(gmailAccVarName, gmailPwdVarName, pqAuthTableVarName)
 	if env.Err() != nil {
 		return fmt.Errorf("environmental variable error: %v", env.Err()), http.StatusInternalServerError
 	}
@@ -68,26 +51,16 @@ func usersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
 	}
 
 	// User identity conflict check
-	db, err := sql.Open("postgres", fmt.Sprintf("username=%s password=%s dbname=%s sslmode=disabled",
-		env.Var("PQ_USERNAME"),
-		env.Var("PQ_PASSWORD"),
-		env.Var("PQ_AUTH_DBNAME")))
-	defer db.Close()
-	err = db.Ping()
-	if err != nil {
-		return fmt.Errorf("database connection error: %s", err), http.StatusInternalServerError
-	}
-
-	rows, err := db.Query("SELECT email, verified, token_expiration FROM ? WHERE username = ? OR email = ? AS count",
-		env.Var("PQ_AUTH_TABLENAME"),
+	rows, err := constants.Db.Query("SELECT email, verified, token_expiration FROM ? WHERE username = ? OR email = ? AS count",
+		env.Var(pqAuthTableVarName),
 		uname,
 		email)
-	const datetimeFormat = "2020-12-24 23:59:00"
+
 	for rows.Next() {
 		var ver bool
 		var exp, em string
 		rows.Scan(&em, &ver, &exp)
-		t, err := time.Parse(datetimeFormat, exp)
+		t, err := time.Parse(constants.DatetimeFormat, exp)
 		if err != nil {
 			return fmt.Errorf("cannot parse token expiration date %v for user %v", exp, email), http.StatusInternalServerError
 		}
@@ -113,23 +86,23 @@ func usersPostHandler(w http.ResponseWriter, req *http.Request) (error, int) {
 	}
 
 	now := time.Now().In(time.UTC)
-	_, err = db.Exec("INSERT INTO ?(email, password, joined_date, validation_token, token_expiration, verified) VALUES(?, ?, ?, ?, ?, ?)",
-		env.Var("PQ_AUTH_TABLENAME"),
+	_, err = constants.Db.Exec("INSERT INTO ?(email, password, joined_date, validation_token, token_expiration, verified) VALUES(?, ?, ?, ?, ?, ?)",
+		env.Var(pqAuthTableVarName),
 		email,
 		string(hash),
-		now.Format(datetimeFormat),
+		now.Format(constants.DatetimeFormat),
 		string(token),
-		now.Add(time.Duration(24*3600*1_000_000_000)).Format(datetimeFormat),
+		now.Add(time.Duration(24*3600*1_000_000_000)).Format(constants.DatetimeFormat),
 		"False")
 	if err != nil {
 		return fmt.Errorf("fail to insert new user into database: %s", err), http.StatusInternalServerError
 	}
 
 	// Send confirmation email to user and redirect user to /users/confirmation/username=&token=
-	from := env.Var("SENDER_GMAIL_ACCOUNT")
-	pass := env.Var("SENDER_GMAIL_PASSWORD")
+	from := env.Var(gmailAccVarName)
+	pass := env.Var(gmailPwdVarName)
 	to := []string{email}
-	sub := "Account confirmation at TripPlanner"
+	sub := "Tripplanner account confirmation"
 	msg := fmt.Sprintf(`Thank you for signing up to Trip Planner.
 	Please click on the URL below to verify your account
 	
