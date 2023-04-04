@@ -21,7 +21,7 @@ abstract class TripPlannerApi {
     @delete("/{id=users/*}")
     DeleteUser(req: DeleteUserRequest) : void;
 
-    // resource type: User.Trip
+    // resource type: Trip
     @post("/{resource.userId=users/*}/trips")
     CreateTrip(req: CreateTripRequest) : Trip;
 
@@ -40,6 +40,12 @@ abstract class TripPlannerApi {
     @delete("/{id=users/*/trips/*}")
     DeleteTrip(req: DeleteTripRequest) : void;
 
+    // singleton subresource: UserPassword
+    @patch("/{resource.id=users/*/password}")
+    UpdateUserPassword(req: UpdateUserPasswordRequest) : UserPassword;
+
+    @post("/{id=users/*/password}:reset")
+    ResetUserPassword(req: ResetUserPasswordRequest) : ResetUserPasswordResponse;
 }
 
 interface CreateUserRequest {
@@ -94,13 +100,34 @@ interface DeleteTripRequest {
     id: string;
 }
 
+interface ResetUserPasswordRequest {
+    id: string;
+
+    email: string;
+}
+
+interface ResetUserPasswordResponse {
+    email: string;
+}
+
+interface UpdateUserPasswordRequest {
+    resource: UserPassword;
+}
+
 interface User {
     id: string;
 
     name: string;
-    password: string;
     email: string;
     joinDate: Datetime;
+}
+
+// singleton subresource for password for security reason
+interface UserPassword {
+    id: string;
+
+    oldPassword: string;
+    password: string;
 }
 
 // Polymorphic resource, can be either trip planned by an anonymous user or a registered user
@@ -112,9 +139,36 @@ interface Trip {
     name?: string;
     dateExpected: Datetime;
     dateCreated: Datetime;
+    budgetLimit: Cost;
+    preferredTransportMode: 'train' | 'bus' | 'walk';
+}
+
+interface Point {
+    id: string;
+
+    tripId: string;
+    geoPointId: string;
+    constraints: PointConstraints;
+    priority?: number;
 }
 
 // Data types
+interface PointConstraints {
+    timeSpendExpected: Duration;
+
+    afterPoints: string[];
+}
+
+interface Cost {
+    amount: number;
+    unit: string;
+}
+
+interface Duration {
+    hour: number;
+    minute: number;
+}
+
 interface Datetime {
     year: number;
     month: number;
