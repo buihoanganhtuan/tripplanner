@@ -21,13 +21,6 @@ type jwtChecker struct {
 	errClaim  string
 }
 
-func (c *jwtChecker) checkClaims(claimMap map[string]interface{}) bool {
-
-	for k, v := range claimMap {
-
-	}
-}
-
 func (c *jwtChecker) checkClaim(name string, val interface{}, req bool) {
 	if c.errClaim != "" {
 		return

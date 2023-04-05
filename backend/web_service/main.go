@@ -9,9 +9,9 @@ import (
 	mux "github.com/gorilla/mux"
 )
 
-func ErrorHandler(f func(w http.ResponseWriter, rq *http.Request) (error, string, int)) http.HandlerFunc {
+func ErrorHandler(f func(w http.ResponseWriter, rq *http.Request) (int, string, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, rq *http.Request) {
-		err, msg, code := f(w, rq)
+		code, msg, err := f(w, rq)
 		if err != nil {
 			w.WriteHeader(code)
 			io.WriteString(w, msg)
@@ -24,7 +24,7 @@ func main() {
 	r := mux.NewRouter()
 
 	// User resource type
-	r.HandleFunc("/users}", ErrorHandler(users.CreateUser)).Methods("POST")
+	r.HandleFunc("/users", ErrorHandler(users.CreateUser)).Methods("POST")
 	r.HandleFunc("/{resource.id=users/.*}/", ErrorHandler(users.UpdateUser)).Methods("PATCH")
 	r.HandleFunc("/{resource.id=users/.*}/", ErrorHandler(users.ReplaceUser)).Methods("PUT")
 	r.HandleFunc("/{id=users/.*}/", ErrorHandler(users.GetUser)).Methods("GET")
