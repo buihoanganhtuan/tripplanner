@@ -12,36 +12,40 @@ abstract class TripPlannerApi {
     @get("/users")
     ListUsers(req: ListUsersRequest) : User[];
 
-    @patch("/{resource.name=users/*}")
+    @patch("/{resource.id=users/*}")
     UpdateUser(req: UpdateUserRequest) : User;
 
-    @put("/{resource.name=users/*}")
+    @put("/{resource.id=users/*}")
     ReplaceUser(req: ReplaceUserRequest) : User;
 
     @delete("/{id=users/*}")
     DeleteUser(req: DeleteUserRequest) : void;
 
+
+
     // resource type: Trip
     @post("/{parent=users/*}/trips" | "/trips")
     CreateTrip(req: CreateTripRequest) : Trip;
 
-    @get("/{id=users/*/trips/*}")
-    GetTrip(req: GetTripRequest) : Trip;
-
-    @patch("/{resource.id=users/*/trips/*}")
+    @patch("/{resource.id=users/*/trips/*}" | "/{resource.id=trips/*}")
     UpdateTrip(req: UpdateTripRequest) : Trip;
 
-    @put("/{resource.id=users/*/trips/*}")
+    @put("/{resource.id=users/*/trips/*}" | "/{resource.id=trips/*}")
     ReplaceTrip(req: ReplaceTripRequest) : Trip;
 
-    @get("{parent=users/*}/trips")
+    @get("/{id=users/*/trips/*}" | "/{id=trips/*}")
+    GetTrip(req: GetTripRequest) : Trip;
+
+    @get("{parent=users/*}/trips" | "/trips")
     ListTrips(req: ListTripRequest) : Trip[];
 
-    @delete("/{id=users/*/trips/*}")
+    @delete("/{id=users/*/trips/*}" | "/{id=trips/*}")
     DeleteTrip(req: DeleteTripRequest) : void;
 
     @post("/{id=users/*/trips/*}:plan" | "/{id=trips/*}:plan")
     PlanTrip(req: PlanTripRequest) : Operation<ResultT, MetadataT>; // custom method for planning the trip
+
+
 
     // Resource type: Point
     @post("/{parent=users/*/trips/*}/points" | "/{parent=trips/*}/points")
@@ -71,8 +75,29 @@ abstract class TripPlannerApi {
 
     @post("/{id=users/*/password}:reset")
     ResetUserPassword(req: ResetUserPasswordRequest) : ResetUserPasswordResponse;
+
+    // Resource type: PointConstraint
+    @post("/{parents=users/*/trips/*/points/*}/constraints" | "/{parent=trips/*/points/*}/constraints")
+    CreatePointConstraint(req: CreatePointConstraintRequest) : PointConstraint;
+
+    @patch("/{resource.id=users/*/trips/*/points/*/constraints/*}" | "/{resource.id=trips/*/points/*/constraints/*}")
+    UpdatePointConstraint(req: UpdatePointConstraintRequest) : PointConstraint;
+
+    @put("/{resource.id=users/*/trips/*/points/*/constraints/*}" | "/{resource.id=trips/*/points/*/constraints/*}")
+    ReplacePointConstraint(req: ReplacePointConstraintRequest) : PointConstraint;
+
+    @get("/{id=users/*/trips/*/points/*/constraints/*}" | "/{id=trips/*/points/*/constraints/*}")
+    GetPointConstraint(req: GetPointConstraintRequest) : PointConstraint;
+
+    @get("/{parent=users/*/trips/*/points/*}/constraints" | "/{parent=trips/*/points/*}/constraints")
+    ListPointConstraints(req: ListPointConstraintsRequest) : PointConstraint[];
+
+    @delete("/{id=users/*/trips/*/points/*/constraints/*}" | "/{id=trips/*/points/*/constraints/*}")
+    DeletePointConstraint(req: DeletePointConstraintRequest) : void;
 }
 
+
+// **************************** Request/Response interface definitions *********************************
 interface CreateUserRequest {
     resource: User;
 }
@@ -100,6 +125,7 @@ interface DeleteUserRequest {
 }
 
 interface CreateTripRequest {
+    parent?: string;
     resource: Trip;
 }
 
@@ -117,7 +143,7 @@ interface GetTripRequest {
 }
 
 interface ListTripRequest {
-    parent: string;
+    parent?: string;
     filter: string;
 }
 
@@ -175,6 +201,33 @@ interface CopyPointRequest {
     destinationId: string;
 }
 
+interface CreatePointConstraintRequest {
+    parent: string;
+    resource: PointConstraint;    
+}
+
+interface UpdatePointConstraintRequest {
+    resource: PointConstraint;
+}
+
+interface ReplacePointConstraintRequest {
+    resource: PointConstraint;
+}
+
+interface GetPointConstraintRequest {
+    id: string;
+}
+
+interface ListPointConstraintsRequest {
+    parent: string;
+    filter: string;
+}
+
+interface DeletePointConstraintRequest {
+    id: string;
+}
+
+
 // ********************* Resource type definitions ************************
 interface User {
     id: string;
@@ -210,8 +263,15 @@ interface Point {
 
     tripId: string;
     geoPointId: string;
-    constraints: PointConstraints;
     priority?: number;
+}
+
+// Polymorphic resource
+interface PointConstraint {
+    id: string;
+    pointId: string;
+    type: 'duration' | 'after' | 'before';
+    value: PointDurationConstraint | PointAfterConstraint | PointBeforeConstraint;
 }
 
 interface Operation<ResultT, MetadataT> {
@@ -229,10 +289,17 @@ interface OperationError {
 }
 
 // Data types
-interface PointConstraints {
-    timeSpendExpected: Duration;
+interface PointDurationConstraint {
+    duration: number;
+    unit: 'h' | 'm';
+}
 
-    afterPoints: string[];
+interface PointAfterConstraint {
+    points: string[];
+}
+
+interface PointBeforeConstraint {
+    points: string[];
 }
 
 interface Cost {
