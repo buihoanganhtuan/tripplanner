@@ -1,34 +1,20 @@
 package main
 
 import (
-	"io"
-	"log"
-	"net/http"
-
+	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
 	users "github.com/buihoanganhtuan/tripplanner/backend/web_service/users"
 	mux "github.com/gorilla/mux"
 )
-
-func ErrorHandler(f func(w http.ResponseWriter, rq *http.Request) (int, string, error)) http.HandlerFunc {
-	return func(w http.ResponseWriter, rq *http.Request) {
-		code, msg, err := f(w, rq)
-		if err != nil {
-			w.WriteHeader(code)
-			io.WriteString(w, msg)
-			log.Println(err)
-		}
-	}
-}
 
 func main() {
 	r := mux.NewRouter()
 
 	// User resource type
-	r.HandleFunc("/users", ErrorHandler(users.CreateUser)).Methods("POST")
-	r.HandleFunc("/{resource.id=users/.*}/", ErrorHandler(users.UpdateUser)).Methods("PATCH")
-	r.HandleFunc("/{resource.id=users/.*}/", ErrorHandler(users.ReplaceUser)).Methods("PUT")
-	r.HandleFunc("/{id=users/.*}/", ErrorHandler(users.GetUser)).Methods("GET")
-	r.HandleFunc("/users", ErrorHandler(users.ListUsers)).Methods("GET")
-	r.HandleFunc("/{id=users/.*}/", ErrorHandler(users.DeleteUser)).Methods("DELETE")
+	r.HandleFunc("/users", utils.ErrorHandler(users.CreateUser)).Methods("POST")
+	r.HandleFunc("/{resource.id=users/.+}/", utils.ErrorHandler(users.UpdateUser)).Methods("PATCH")
+	r.HandleFunc("/{resource.id=users/.+}/", utils.ErrorHandler(users.ReplaceUser)).Methods("PUT")
+	r.HandleFunc("/{id=users/.*}/", utils.ErrorHandler(users.GetUser)).Methods("GET")
+	r.HandleFunc("/users{query=\\?.+}", utils.ErrorHandler(users.ListUsers)).Methods("GET")
+	r.HandleFunc("/{id=users/.+}/", utils.ErrorHandler(users.DeleteUser)).Methods("DELETE")
 
 }

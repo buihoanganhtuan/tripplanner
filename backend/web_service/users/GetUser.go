@@ -52,9 +52,8 @@ func GetUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 		return http.StatusInternalServerError, "error marshalling resource", fmt.Errorf("error marshalling resource: %v", err)
 	}
 
-	w.Write(resource)
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.Write(resource)
 
 	return 0, "", nil
 }

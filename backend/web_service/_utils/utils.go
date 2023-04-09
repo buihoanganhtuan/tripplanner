@@ -4,6 +4,8 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/mail"
 	"os"
@@ -11,6 +13,17 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v4"
 )
+
+func ErrorHandler(f func(w http.ResponseWriter, rq *http.Request) (int, string, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, rq *http.Request) {
+		code, msg, err := f(w, rq)
+		if err != nil {
+			w.WriteHeader(code)
+			io.WriteString(w, msg)
+			log.Println(err)
+		}
+	}
+}
 
 // unsafe manager type to manage environment variables
 // Attempting to get a variable via Var() when the manager is in error state or
