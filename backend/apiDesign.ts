@@ -1,3 +1,19 @@
+/* 
+For this application, navigating between Trip and its child resources is best 
+handled as a single page application. Therefore, the API will send back data as JSON 
+when user is interacting with trip and its child resources (Point and PointConstraint) 
+for client to process and update the single page.
+
+To make it consistent for both client code and server code, this API will always return
+JSON, and it is the responsibility of the client dev to read the doc of this API to 
+know how to construct the next URL(s)
+
+Admittedly, the fact that 1) client dev using this API have to read the API doc
+to know how to use it and 2) no HATEOAS: the response is not hypermedia (think HTML or JSON+HAL)
+but pure data (think pure JSON) implies that this is not a "true" REST API. However,
+such is also 99% of APIs that claim to be RESTful today.
+
+*/
 abstract class TripPlannerApi {
     static version = "v1";
     static title = "Trip Planner API"
@@ -22,7 +38,6 @@ abstract class TripPlannerApi {
     DeleteUser(req: DeleteUserRequest) : void;
 
 
-
     // resource type: Trip
     @post("/{parent=users/*}/trips" | "/trips")
     CreateTrip(req: CreateTripRequest) : Trip;
@@ -45,7 +60,8 @@ abstract class TripPlannerApi {
     @post("/{id=users/*/trips/*}:plan" | "/{id=trips/*}:plan")
     PlanTrip(req: PlanTripRequest) : Operation<ResultT, MetadataT>; // custom method for planning the trip
 
-
+    @post("/{id=users/*/trips/*}:copy" | "/{id=trips/*}:copy")
+    CopyTrip(req: CopyTripRequest) : Trip;
 
     // Resource type: Point
     @post("/{parent=users/*/trips/*}/points" | "/{parent=trips/*}/points")
@@ -66,34 +82,24 @@ abstract class TripPlannerApi {
     @delete("/{id=users/*/trips/*/points/*}" | "/{id=trips/*/points/*}")
     DeletePoint(req: DeletePointRequest) : void;
 
-    @post("/{id=users/*/trips/*/points/*}:copy | {id=trips/*/points/*}:copy") // custom method for copy a point from one trip to another. Won't copy pointConstraints
-    CopyPoint(req: CopyPointRequest) : Point;
 
-    // singleton subresource: UserPassword
-    @post("/{resource.id=users/*/password}")
-    UpdateUserPassword(req: UpdateUserPasswordRequest) : UserPassword;
+    // Resource type: GeoPoint, read-only: does not support write-based actions (create, replace, update, delete)
+    @get("/{id=geopoints/*}")
+    GetGeoPoint(req: GetGeoPointRequest) : GeoPoint;
+
+    @get("/geopoints/*")
+    ListGeoPoint(req: ListGeoPointRequest) : GeoPoint[];
+
+    // singleton subresource: Email
+    @post("/{resource.id=users/*/email}:change")
+    ChangeEmail(req: ChangeEmailRequest) : void;
+
+    // singleton subresource: Password
+    @post("/{resource.id=users/*/password}:change")
+    ChangePassword(req: ChangePasswordRequest) : void;    
 
     @post("/{id=users/*/password}:reset")
-    ResetUserPassword(req: ResetUserPasswordRequest) : ResetUserPasswordResponse;
-
-    // Resource type: PointConstraint
-    @post("/{parents=users/*/trips/*/points/*}/constraints" | "/{parent=trips/*/points/*}/constraints")
-    CreatePointConstraint(req: CreatePointConstraintRequest) : PointConstraint;
-
-    @patch("/{resource.id=users/*/trips/*/points/*/constraints/*}" | "/{resource.id=trips/*/points/*/constraints/*}")
-    UpdatePointConstraint(req: UpdatePointConstraintRequest) : PointConstraint;
-
-    @put("/{resource.id=users/*/trips/*/points/*/constraints/*}" | "/{resource.id=trips/*/points/*/constraints/*}")
-    ReplacePointConstraint(req: ReplacePointConstraintRequest) : PointConstraint;
-
-    @get("/{id=users/*/trips/*/points/*/constraints/*}" | "/{id=trips/*/points/*/constraints/*}")
-    GetPointConstraint(req: GetPointConstraintRequest) : PointConstraint;
-
-    @get("/{parent=users/*/trips/*/points/*}/constraints" | "/{parent=trips/*/points/*}/constraints")
-    ListPointConstraints(req: ListPointConstraintsRequest) : PointConstraint[];
-
-    @delete("/{id=users/*/trips/*/points/*/constraints/*}" | "/{id=trips/*/points/*/constraints/*}")
-    DeletePointConstraint(req: DeletePointConstraintRequest) : void;
+    ResetPassword(req: ResetPasswordRequest) : void;
 }
 
 
@@ -155,14 +161,23 @@ interface PlanTripRequest {
     id: string;
 }
 
-interface ResetUserPasswordRequest {
+interface ChangeEmailRequest {
     id: string;
 
-    email: string;
+    oldEmail: string;
+    password: string;
+    newEmail: string;
 }
 
-interface ResetUserPasswordResponse {
-    email: string;
+interface ChangePasswordRequest {
+    id: string;
+
+    oldPassword: string;
+    newPassowrd: string;
+}
+
+interface ResetPasswordRequest {
+    id: string;
 }
 
 interface UpdateUserPasswordRequest {
@@ -195,39 +210,19 @@ interface DeletePointRequest {
     id: string;
 }
 
-interface CopyPointRequest {
-    id: string;
-    destinationTripId: string;
-    destinationId: string;
-}
-
-interface CreatePointConstraintRequest {
-    parent: string;
-    resource: PointConstraint;    
-}
-
-interface UpdatePointConstraintRequest {
-    resource: PointConstraint;
-}
-
-interface ReplacePointConstraintRequest {
-    resource: PointConstraint;
-}
-
-interface GetPointConstraintRequest {
+interface GetGeoPointRequest {
     id: string;
 }
 
-interface ListPointConstraintsRequest {
-    parent: string;
+interface ListGeoPointRequest {
     filter: string;
 }
 
-interface DeletePointConstraintRequest {
+interface CopyTripRequest {
     id: string;
+    destinationParentId: string;
+    destinationId: string;
 }
-
-
 // ********************* Resource type definitions ************************
 interface User {
     id: string;
@@ -256,6 +251,7 @@ interface Trip {
     lastModified: Datetime;
     budgetLimit: Cost;
     preferredTransportMode: 'train' | 'bus' | 'walk';
+    planResult: Edge[];
 }
 
 interface Point {
@@ -263,17 +259,21 @@ interface Point {
 
     tripId: string;
     geoPointId: string;
-    priority?: number;
+    arrivalConstraint: PointArrivalConstraint;
+    durationConstraint: PointDurationConstraint;
+    beforeConstraint: PointBeforeConstraint;
+    afterConstraint: PointAfterConstraint;
+}
+
+interface GeoPoint {
+    id: string;
+
+    lat: string;
+    lon: string;
+    tags: KeyValuePair[];
 }
 
 // Polymorphic resource
-interface PointConstraint {
-    id: string;
-    pointId: string;
-    type: 'duration' | 'after' | 'before';
-    value: PointDurationConstraint | PointAfterConstraint | PointBeforeConstraint;
-}
-
 interface Operation<ResultT, MetadataT> {
     id: string;
 
@@ -289,6 +289,11 @@ interface OperationError {
 }
 
 // Data types
+interface PointArrivalConstraint {
+    from: Datetime;
+    to: Datetime;
+}
+
 interface PointDurationConstraint {
     duration: number;
     unit: 'h' | 'm';
@@ -320,4 +325,19 @@ interface Datetime {
     min: number;
     sec: number;
     timezone: string;
+}
+
+interface Edge {
+    pointId: string;
+    nextPointId: string;
+    start: Datetime;
+    duration: Duration;
+    cost: Cost;
+    transportMode: 'train' | 'bus' | 'walk'
+    geoPointId: string[];
+}
+
+interface KeyValuePair {
+    key: string;
+    value: string;
 }

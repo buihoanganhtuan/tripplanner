@@ -1,9 +1,13 @@
 package utils
 
 import (
+	"crypto/rsa"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/mail"
 	"os"
+	"strings"
 
 	jwt "github.com/golang-jwt/jwt/v4"
 )
@@ -90,6 +94,29 @@ func (env *EnvironmentVariableMap) Var(name string) string {
 
 func (env *EnvironmentVariableMap) Err() error {
 	return env.err
+}
+
+func ValidateAccessToken(rq *http.Request, pk *rsa.PublicKey) (*jwt.Token, error) {
+	// check if there is any access token
+	if rq.Header.Get("Authorization") == "" {
+		return nil, fmt.Errorf("no access token")
+	}
+
+	// check access token integrity. Note that we don't support BasicAuth
+	ts, ok := strings.CutPrefix(rq.Header.Get("Authorization"), "Bearer ")
+	if !ok {
+		return nil, errors.New("invalid authorization header")
+	}
+
+	token, err := jwt.Parse(ts, func(token *jwt.Token) (interface{}, error) {
+		return pk, nil
+	}, jwt.WithValidMethods([]string{"RSA"}))
+
+	if err != nil || !token.Valid {
+		return nil, err
+	}
+
+	return token, nil
 }
 
 func CheckPasswordStrength(passwd string) bool {

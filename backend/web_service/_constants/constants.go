@@ -3,6 +3,7 @@ package constants
 import (
 	"crypto/rsa"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -26,11 +27,28 @@ const (
 )
 
 // Tagging to assist JSON Marshalling (converting a structured data into a JSON string)
-type User struct {
-	Id       string `json:"id,omitempty"`
-	Name     string `json:"name,omitempty"`
-	Email    string `json:"email,omitempty"`
-	JoinDate DateTime
+// Note that in this case, missing, null, and zero values are handled in the same way so
+// that greatly reduce complexity of UserResponse struct definition: no need to separate UserIn
+// (which doesn't use Optional) and UserOut (which uses Optional).
+type UserResponse struct {
+	Id       string   `json:"id,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	JoinDate DateTime `json:"joinDate,omitempty"`
+}
+
+type UserRequest struct {
+	Id   string           `json:"id"`
+	Name Optional[string] `json:"name"`
+}
+
+type Optional[T any] struct {
+	Defined bool
+	Value   *T
+}
+
+func (o *Optional[T]) UnmarshalJSON(data []byte) error {
+	o.Defined = true
+	return json.Unmarshal(data, &o.Value)
 }
 
 type DateTime struct {
