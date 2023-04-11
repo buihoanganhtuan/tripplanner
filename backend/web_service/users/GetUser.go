@@ -15,7 +15,7 @@ import (
 func GetUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	id := mux.Vars(rq)["id"]
 
-	rows, err := constants.Database.Query("select id, name, join_date from ? where id = ?", constants.EnvironmentVariable.Var(constants.PQ_USER_TABLE_VAR), id)
+	rows, err := constants.Database.Query("select id, name, join_date from ? where id = ?", constants.EnvironmentVariable.Var(constants.SQL_USER_TABLE_VAR), id)
 	if err != nil {
 		return http.StatusInternalServerError, "", fmt.Errorf("database connection error: %v", err)
 	}

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/mail"
 	"os"
 	"strings"
+	"time"
 
 	jwt "github.com/golang-jwt/jwt/v4"
 )
@@ -103,6 +105,20 @@ func (env *EnvironmentVariableMap) Var(name string) string {
 		panic(fmt.Errorf("environmental variable %v has not been fetched", name))
 	}
 	return env.varMap[name]
+}
+
+func GetBase32RandomString(length int) string {
+	const b32Charset = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+	const checksumCharset = "0123456789ABCDEFGHJKMNPQRSTVWXYZ*~$=U"
+	rnd := rand.New(rand.NewSource(time.Now().Unix()))
+	b := make([]byte, length+1)
+	checkSum := 0
+	for i := 0; i < length; i++ {
+		b[i] = b32Charset[rnd.Intn(32)]
+		checkSum = (checkSum<<5 + int(b[i])) % 37
+	}
+	b[length] = checksumCharset[checkSum]
+	return string(b)
 }
 
 func (env *EnvironmentVariableMap) Err() error {

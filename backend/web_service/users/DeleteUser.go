@@ -1,14 +1,17 @@
 package users
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
 
 	constants "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
 	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/trips"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
+	"github.com/redis/go-redis/v9"
 )
 
 func DeleteUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
@@ -39,7 +42,50 @@ func DeleteUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	}
 
 	// Recursive delete all child resources
-	rows, err := constants.Database.Query("select id from ? where userId = id", constants.EnvironmentVariable.Var(constants.PQ_TRIP_TABLE_VAR))
+	
 
 	return 0, "", nil
+}
+
+func NewDeleteTransaction(resourceId string) (string, error) {
+	// if a delete transaction for this resource is already ongoing, throw an error
+	var ctx = context.Background()
+	_, err := constants.KvStoreDelete.Get(ctx, resourceId).Result()
+	if err != redis.Nil {
+		return "", fmt.Errorf("another delete transaction is already ongoing for %v", resourceId)
+	}
+
+	// otherwise, create a transaction to temporarily backup the whole tree
+	transactionId := resourceId + "@" + utils.GetBase32RandomString(5)
+
+
+	// if any backup operation fails, delete the transaction and return an error
+
+
+	// success, return the transaction id
+
+}
+
+func 
+
+func ExecuteDeleteTransaction(transactionId string) error {
+	rows, err := constants.Database.Query("select id from ? where userId = ?", constants.EnvironmentVariable.Var(constants.SQL_TRIP_TABLE_VAR), id)
+	if err != nil {
+		return err
+	}
+	var tripIds []string
+	for rows.Next() {
+		var tripId string
+		err = rows.Scan(&tripId)
+		if err != nil {
+			return err
+		}
+		tripIds = append(tripIds, tripId)
+	}
+	for _, tripId := range tripIds {
+		if err = trips.TryDelete(tripId); err != nil {
+			return err
+		}
+	}
+
 }

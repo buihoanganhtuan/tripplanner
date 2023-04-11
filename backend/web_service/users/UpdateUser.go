@@ -61,7 +61,7 @@ func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 		}
 
 		rows, err := constants.Database.Query("select count(*) from ? where name = ?",
-			constants.EnvironmentVariable.Var(constants.PQ_USER_TABLE_VAR),
+			constants.EnvironmentVariable.Var(constants.SQL_USER_TABLE_VAR),
 			*res.Name.Value)
 		if err != nil {
 			return http.StatusInternalServerError, "cannot query database", fmt.Errorf("cannot query database for username change check: %v", err)
@@ -76,7 +76,7 @@ func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 			return http.StatusBadRequest, "username already exist", fmt.Errorf("duplicate username change %s", *res.Name.Value)
 		}
 		_, err = constants.Database.Exec("update ? set name = ? where id = ?",
-			constants.EnvironmentVariable.Var(constants.PQ_USER_TABLE_VAR),
+			constants.EnvironmentVariable.Var(constants.SQL_USER_TABLE_VAR),
 			*res.Name.Value,
 			id)
 		if err != nil {
@@ -84,7 +84,7 @@ func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 		}
 	}
 
-	rows, err := constants.Database.Query("select name, join_date from ? where id = ?", constants.EnvironmentVariable.Var(constants.PQ_USER_TABLE_VAR), id)
+	rows, err := constants.Database.Query("select name, join_date from ? where id = ?", constants.EnvironmentVariable.Var(constants.SQL_USER_TABLE_VAR), id)
 	if err != nil {
 		return http.StatusInternalServerError, "fail to retrieve updated user data", fmt.Errorf("fail to retrieve updated user data: %v", err)
 	}
