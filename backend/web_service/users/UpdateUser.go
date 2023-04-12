@@ -18,7 +18,7 @@ import (
 func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	id := mux.Vars(rq)["id"]
 
-	token, err := utils.ValidateAccessToken(rq, constants.PublicKey)
+	token, err := utils.ValidateAccessToken(rq, constants.Pk)
 
 	if err != nil {
 		return http.StatusUnauthorized, "invalid access token", fmt.Errorf("invalid access token: %v", err)
@@ -60,8 +60,8 @@ func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 			return http.StatusBadRequest, "name field, if defined, cannot be an empty string", errors.New("empty name change")
 		}
 
-		rows, err := constants.Database.Query("select count(*) from ? where name = ?",
-			constants.EnvironmentVariable.Var(constants.SQL_USER_TABLE_VAR),
+		rows, err := constants.Db.Query("select count(*) from ? where name = ?",
+			constants.Ev.Var(constants.SqlUserTableVar),
 			*res.Name.Value)
 		if err != nil {
 			return http.StatusInternalServerError, "cannot query database", fmt.Errorf("cannot query database for username change check: %v", err)
@@ -75,8 +75,8 @@ func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 		if cnt >= 1 {
 			return http.StatusBadRequest, "username already exist", fmt.Errorf("duplicate username change %s", *res.Name.Value)
 		}
-		_, err = constants.Database.Exec("update ? set name = ? where id = ?",
-			constants.EnvironmentVariable.Var(constants.SQL_USER_TABLE_VAR),
+		_, err = constants.Db.Exec("update ? set name = ? where id = ?",
+			constants.Ev.Var(constants.SqlUserTableVar),
 			*res.Name.Value,
 			id)
 		if err != nil {
@@ -84,7 +84,7 @@ func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 		}
 	}
 
-	rows, err := constants.Database.Query("select name, join_date from ? where id = ?", constants.EnvironmentVariable.Var(constants.SQL_USER_TABLE_VAR), id)
+	rows, err := constants.Db.Query("select name, join_date from ? where id = ?", constants.Ev.Var(constants.SqlUserTableVar), id)
 	if err != nil {
 		return http.StatusInternalServerError, "fail to retrieve updated user data", fmt.Errorf("fail to retrieve updated user data: %v", err)
 	}
@@ -97,7 +97,7 @@ func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 		return http.StatusBadRequest, "trying to update a non-existing user", fmt.Errorf("trying to update a non-existing user: %s", id)
 	}
 	rows.Scan(&name, &joinDateStr)
-	t, err := time.Parse(constants.DATE_TIME_FORMAT, joinDateStr)
+	t, err := time.Parse(constants.DatetimeFormat, joinDateStr)
 	if err != nil {
 		return http.StatusInternalServerError, "fail to parse user join date", fmt.Errorf("fail to parse user join date: %v", err)
 	}

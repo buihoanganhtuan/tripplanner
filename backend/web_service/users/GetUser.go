@@ -15,7 +15,7 @@ import (
 func GetUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	id := mux.Vars(rq)["id"]
 
-	rows, err := constants.Database.Query("select id, name, join_date from ? where id = ?", constants.EnvironmentVariable.Var(constants.SQL_USER_TABLE_VAR), id)
+	rows, err := constants.Db.Query("select id, name, join_date from ? where id = ?", constants.Ev.Var(constants.SqlUserTableVar), id)
 	if err != nil {
 		return http.StatusInternalServerError, "", fmt.Errorf("database connection error: %v", err)
 	}
@@ -27,7 +27,7 @@ func GetUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	var uid, name, joinDate string
 	rows.Scan(&uid, &name, &joinDate)
 
-	t, err := time.Parse(constants.DATE_TIME_FORMAT, joinDate)
+	t, err := time.Parse(constants.DatetimeFormat, joinDate)
 
 	if err != nil {
 		return http.StatusInternalServerError, "error parsing join date", fmt.Errorf("error parsing join date: %v", err)

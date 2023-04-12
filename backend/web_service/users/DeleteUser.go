@@ -2,11 +2,14 @@ package users
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
-	constants "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
+	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
 	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/trips"
 	"github.com/golang-jwt/jwt/v4"
@@ -17,7 +20,7 @@ import (
 func DeleteUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	id := mux.Vars(rq)["id"]
 
-	token, err := utils.ValidateAccessToken(rq, constants.PublicKey)
+	token, err := utils.ValidateAccessToken(rq, cst.Pk)
 	if err != nil {
 		return http.StatusBadRequest, "invalid access token", fmt.Errorf("invalid access token: %v", err)
 	}
@@ -42,48 +45,132 @@ func DeleteUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	}
 
 	// Recursive delete all child resources
-	
 
 	return 0, "", nil
 }
 
 func NewDeleteTransaction(resourceId string) (string, error) {
 	// if a delete transaction for this resource is already ongoing, throw an error
-	var ctx = context.Background()
-	_, err := constants.KvStoreDelete.Get(ctx, resourceId).Result()
+	ctx := context.Background()
+	v, err := cst.Kvs.HGet(ctx, "delete.ongoing", fmt.Sprintf("%s.expire", resourceId)).Result()
+	t := cst.Kvs.Time(ctx).Val()
 	if err != redis.Nil {
-		return "", fmt.Errorf("another delete transaction is already ongoing for %v", resourceId)
+		var exp time.Time
+		exp, err = time.Parse(cst.DatetimeFormat, v)
+		if err != nil {
+			return "", fmt.Errorf("cannot parse datetime %v", v)
+		}
+		if t.Before(exp) {
+			return "", fmt.Errorf("another delete transaction is already ongoing for %v", resourceId)
+		}
 	}
 
 	// otherwise, create a transaction to temporarily backup the whole tree
-	transactionId := resourceId + "@" + utils.GetBase32RandomString(5)
+	transactionId := utils.GetBase32RandomString(5)
+	cst.Kvs.HSet(ctx, "delete.ongoing", fmt.Sprintf("%s.expire", transactionId), t.Add(time.Hour*time.Duration(1)).Format(cst.DatetimeFormat))
 
+	var rows *sql.Rows
+	rows, err = cst.Db.Query("select id from ? where userId = ?", cst.Ev.Var(cst.SqlTripTableVar), resourceId)
+	if err != nil {
+		return "", fmt.Errorf("error querying database %v", err)
+	}
+
+	var tids []string
+
+	for rows.Next() {
+		var tid string
+		rows.Scan(&tid)
+		tids = append(tids, tid)
+	}
+
+	for _, tid := range tids {
+		err = trips.PrepareDeleteTransaction(transactionId, tid)
+		if err != nil {
+			break
+		}
+	}
+
+	if err == nil {
+		err = PrepareDeleteTransaction(transactionId, resourceId, ctx)
+	}
 
 	// if any backup operation fails, delete the transaction and return an error
+	if err != nil {
+		for r := 3; r > 0; r-- {
+			err = UnPrepareDeleteTransaction(transactionId, resourceId, ctx)
+			if err == nil {
+				break
+			}
+		}
 
+		for _, tid := range tids {
+			for r := 3; r > 0; r-- {
+				err = trips.UnprepareDeleteTransaction(transactionId, tid)
+				if err == nil {
+					break
+				}
+			}
+		}
+
+		for r := 3; r > 0; r-- {
+			err = cst.Kvs.HDel(ctx, "delete.ongoing", fmt.Sprintf("%s.expire", transactionId)).Err()
+			if err == nil {
+				break
+			}
+		}
+
+		return "", errors.New("cannot create new delete transaction")
+	}
 
 	// success, return the transaction id
-
+	return transactionId, nil
 }
 
-func 
-
-func ExecuteDeleteTransaction(transactionId string) error {
-	rows, err := constants.Database.Query("select id from ? where userId = ?", constants.EnvironmentVariable.Var(constants.SQL_TRIP_TABLE_VAR), id)
+func PrepareDeleteTransaction(transactionId, resourceId string, ctx context.Context) error {
+	var rows *sql.Rows
+	rows, err := cst.Db.Query("select id, name, email, password from ? where id = ?", cst.Ev.Var(cst.SqlUserTableVar), resourceId)
 	if err != nil {
 		return err
 	}
-	var tripIds []string
+	var id, name, email, password string
 	for rows.Next() {
-		var tripId string
-		err = rows.Scan(&tripId)
+		rows.Scan(&id, &name, &email, &password)
+	}
+
+	var b []byte
+	b, err = json.Marshal(User{
+		Id:       id,
+		Name:     name,
+		Email:    email,
+		Password: password,
+	})
+	if err != nil {
+		return err
+	}
+	cst.Kvs.HSet(ctx, "delete.ongoing", fmt.Sprintf("%s.data.%s", transactionId, resourceId), string(b))
+	return nil
+}
+
+func UnPrepareDeleteTransaction(transactionId, resourceId string, ctx context.Context) error {
+
+}
+
+func ExecuteDeleteTransaction(transactionId, resourceId string) error {
+	rows, err := cst.Db.Query("select id from ? where userId = ?", cst.Ev.Var(cst.SqlTripTableVar), resourceId)
+	if err != nil {
+		return err
+	}
+	var tids []string
+	for rows.Next() {
+		var tid string
+		err = rows.Scan(&tid)
 		if err != nil {
 			return err
 		}
-		tripIds = append(tripIds, tripId)
+		tids = append(tids, tid)
 	}
-	for _, tripId := range tripIds {
-		if err = trips.TryDelete(tripId); err != nil {
+	for _, tid := range tids {
+		if err = trips.TryDelete(tid); err != nil {
 			return err
 		}
 	}

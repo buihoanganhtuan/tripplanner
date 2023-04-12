@@ -40,6 +40,25 @@ type jwtChecker struct {
 	errClaim  string
 }
 
+type AnyError struct {
+	err error
+}
+
+func (a AnyError) Error() string {
+	return a.err.Error()
+}
+
+func (a *AnyError) Add(e error) {
+	if a.err != nil {
+		return
+	}
+	a.err = e
+}
+
+func (a *AnyError) Err() error {
+	return a.err
+}
+
 func (c *jwtChecker) checkClaim(name string, val interface{}, req bool) {
 	if c.errClaim != "" {
 		return

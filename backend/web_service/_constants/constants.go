@@ -14,25 +14,25 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var Database *sql.DB
-var KvStoreDelete *redis.Client
-var PublicKey *rsa.PublicKey
-var EnvironmentVariable utils.EnvironmentVariableMap
+var Db *sql.DB
+var Kvs *redis.Client
+var Pk *rsa.PublicKey
+var Ev utils.EnvironmentVariableMap
 
 const (
-	DATE_TIME_FORMAT             = "2006-01-02 15:04:05 -0700"
-	SQL_HOST_VAR                 = "PQ_HOST"
-	SQL_PORT_VAR                 = "PQ_PORT"
-	SQL_USERNAME_VAR             = "PQ_USERNAME"
-	SQL_PASSWORD_VAR             = "PQ_PASSWORD"
-	SQL_WEB_DBNAME_VAR           = "PQ_WEB_DBNAME"
-	SQL_USER_TABLE_VAR           = "PQ_USER_TABLE"
-	SQL_TRIP_TABLE_VAR           = "PQ_TRIP_TABLE"
-	KV_HOST_VAR                  = "REDIS_HOST"
-	KV_PORT_VAR                  = "REDIS_PORT"
-	KV_PASSWORD_VAR              = "REDIS_PASSWORD"
-	KV_DELETE_TRANSACTION_DB_VAR = "REDIS_DELETE_TRANSACTION_DBNAME"
-	PUBLIC_KEY_PATH_VAR          = "PUBLIC_KEY_PATH"
+	DatetimeFormat   = "2006-01-02 15:04:05 -0700"
+	SqlHostVar       = "PQ_HOST"
+	SqlPortVar       = "PQ_PORT"
+	SqlUsernameVar   = "PQ_USERNAME"
+	SqlPasswordVar   = "PQ_PASSWORD"
+	SqlWebDbNameVar  = "PQ_WEB_DBNAME"
+	SqlUserTableVar  = "PQ_USER_TABLE"
+	SqlTripTableVar  = "PQ_TRIP_TABLE"
+	KvsHostVar       = "REDIS_HOST"
+	KvsPortVar       = "REDIS_PORT"
+	KvsPasswordVar   = "REDIS_PASSWORD"
+	KvsDelHKeyVar    = "REDIS_DELETE_TRANS_KEY"
+	PublicKeyPathVar = "PUBLIC_KEY_PATH"
 )
 
 // Tagging to assist JSON Marshalling (converting a structured data into a JSON string)
@@ -71,60 +71,60 @@ type DateTime struct {
 }
 
 func init() {
-	EnvironmentVariable.Fetch(
-		SQL_HOST_VAR,
-		SQL_PORT_VAR,
-		SQL_USERNAME_VAR,
-		SQL_PASSWORD_VAR,
-		SQL_WEB_DBNAME_VAR,
-		SQL_USER_TABLE_VAR,
-		SQL_TRIP_TABLE_VAR,
-		KV_HOST_VAR,
-		KV_PORT_VAR,
-		KV_PASSWORD_VAR,
-		KV_DELETE_TRANSACTION_DB_VAR,
-		PUBLIC_KEY_PATH_VAR)
+	Ev.Fetch(
+		SqlHostVar,
+		SqlPortVar,
+		SqlUsernameVar,
+		SqlPasswordVar,
+		SqlWebDbNameVar,
+		SqlUserTableVar,
+		SqlTripTableVar,
+		KvsHostVar,
+		KvsPortVar,
+		KvsPasswordVar,
+		KvsDelHKeyVar,
+		PublicKeyPathVar)
 
 	var err error
-	Database, err = sql.Open("postgres", fmt.Sprintf("host=%s port=%s username=%s password=%s dbname=%s sslmode=disabled",
-		EnvironmentVariable.Var(SQL_HOST_VAR),
-		EnvironmentVariable.Var(SQL_PORT_VAR),
-		EnvironmentVariable.Var(SQL_USERNAME_VAR),
-		EnvironmentVariable.Var(SQL_PASSWORD_VAR),
-		EnvironmentVariable.Var(SQL_WEB_DBNAME_VAR)))
+	Db, err = sql.Open("postgres", fmt.Sprintf("host=%s port=%s username=%s password=%s dbname=%s sslmode=disabled",
+		Ev.Var(SqlHostVar),
+		Ev.Var(SqlPortVar),
+		Ev.Var(SqlUsernameVar),
+		Ev.Var(SqlPasswordVar),
+		Ev.Var(SqlWebDbNameVar)))
 
 	if err != nil {
 		panic(fmt.Errorf("database connection error: %v", err))
 	}
-	err = Database.Ping()
+	err = Db.Ping()
 	if err != nil {
 		panic(fmt.Errorf("database connection error: %v", err))
 	}
 
 	// Load authentication server's public key for access token validation
-	EnvironmentVariable.Fetch(PUBLIC_KEY_PATH_VAR, SQL_USER_TABLE_VAR)
-	if EnvironmentVariable.Err() != nil {
-		panic(fmt.Errorf("environment variable error: %v", EnvironmentVariable.Err()))
+	Ev.Fetch(PublicKeyPathVar, SqlUserTableVar)
+	if Ev.Err() != nil {
+		panic(fmt.Errorf("environment variable error: %v", Ev.Err()))
 	}
 
-	b, err := os.ReadFile(EnvironmentVariable.Var(PUBLIC_KEY_PATH_VAR))
+	b, err := os.ReadFile(Ev.Var(PublicKeyPathVar))
 	if err != nil {
 		panic(fmt.Errorf("cannot read public key file: %v", err))
 	}
 
-	PublicKey, err = jwt.ParseRSAPublicKeyFromPEM(b)
+	Pk, err = jwt.ParseRSAPublicKeyFromPEM(b)
 	if err != nil {
 		panic(fmt.Errorf("fail to parse public key from file: %v", err))
 	}
 
 	// Connect to key-value store
-	dbn, err := strconv.Atoi(EnvironmentVariable.Var(KV_DELETE_TRANSACTION_DB_VAR))
+	dbn, err := strconv.Atoi(Ev.Var(KvsDelHKeyVar))
 	if err != nil {
-		panic(fmt.Errorf("cannot parse %v as an int", EnvironmentVariable.Var(KV_DELETE_TRANSACTION_DB_VAR)))
+		panic(fmt.Errorf("cannot parse %v as an int", Ev.Var(KvsDelHKeyVar)))
 	}
 	KvStore := redis.NewClient(&redis.Options{
-		Addr:     EnvironmentVariable.Var(KV_HOST_VAR) + ":" + EnvironmentVariable.Var(KV_PORT_VAR),
-		Password: EnvironmentVariable.Var(KV_PASSWORD_VAR),
+		Addr:     Ev.Var(KvsHostVar) + ":" + Ev.Var(KvsPortVar),
+		Password: Ev.Var(KvsPasswordVar),
 		DB:       dbn,
 	})
 
