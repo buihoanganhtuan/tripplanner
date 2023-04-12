@@ -12,7 +12,6 @@ import (
 	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
 	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/trips"
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	"github.com/redis/go-redis/v9"
 )
@@ -20,22 +19,15 @@ import (
 func DeleteUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	id := mux.Vars(rq)["id"]
 
-	token, err := utils.ValidateAccessToken(rq, cst.Pk)
+	mc, err := utils.ExtractClaims(rq, cst.Pk)
 	if err != nil {
 		return http.StatusBadRequest, "invalid access token", fmt.Errorf("invalid access token: %v", err)
 	}
 
-	mc, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return http.StatusBadRequest, "invalid access token", fmt.Errorf("invalid access token: %v", err)
-	}
-
-	checker := jwtChecker{
-		mapClaims: mc,
-	}
+	checker := jwtChecker{mapClaims: mc}
 
 	now := time.Now().Unix()
-	checker.checkClaim("iss", "auth_service", true)
+	checker.checkClaim("iss", "AuthService", true)
 	checker.checkClaim("sub", id, true)
 	checker.checkClaim("iat", now, false)
 	checker.checkClaim("exp", now, true)
@@ -52,13 +44,17 @@ func DeleteUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 func NewDeleteTransaction(resourceId string) (string, error) {
 	// if a delete transaction for this resource is already ongoing, throw an error
 	ctx := context.Background()
-	v, err := cst.Kvs.HGet(ctx, "delete.ongoing", fmt.Sprintf("%s.expire", resourceId)).Result()
+	tid, err := cst.Kvs.HGet(ctx, "resources", resourceId+".delete").Result()
 	t := cst.Kvs.Time(ctx).Val()
 	if err != redis.Nil {
-		var exp time.Time
-		exp, err = time.Parse(cst.DatetimeFormat, v)
+		expStr, err := cst.Kvs.HGet(ctx, "transactions", fmt.Sprintf("%s.expire", tid)).Result()
 		if err != nil {
-			return "", fmt.Errorf("cannot parse datetime %v", v)
+			return "", fmt.Errorf("cannot get expiration date for ongoing transaction %s", tid)
+		}
+		var exp time.Time
+		exp, err = time.Parse(cst.DatetimeFormat, expStr)
+		if err != nil {
+			return "", fmt.Errorf("cannot parse expiration date %s for transaction %s", expStr, tid)
 		}
 		if t.Before(exp) {
 			return "", fmt.Errorf("another delete transaction is already ongoing for %v", resourceId)
@@ -66,8 +62,13 @@ func NewDeleteTransaction(resourceId string) (string, error) {
 	}
 
 	// otherwise, create a transaction to temporarily backup the whole tree
-	transactionId := utils.GetBase32RandomString(5)
-	cst.Kvs.HSet(ctx, "delete.ongoing", fmt.Sprintf("%s.expire", transactionId), t.Add(time.Hour*time.Duration(1)).Format(cst.DatetimeFormat))
+	transactionId := utils.GetBase32RandomString(20)
+
+	cst.Kvs.HSet(ctx, "transaction",
+		transactionId, "",
+		transactionId+".type", "delete",
+		transactionId+".data", resourceId+";",
+		transactionId+".expire", t.Add(time.Hour*time.Duration(1)).Format(cst.DatetimeFormat))
 
 	var rows *sql.Rows
 	rows, err = cst.Db.Query("select id from ? where userId = ?", cst.Ev.Var(cst.SqlTripTableVar), resourceId)
@@ -84,7 +85,7 @@ func NewDeleteTransaction(resourceId string) (string, error) {
 	}
 
 	for _, tid := range tids {
-		err = trips.PrepareDeleteTransaction(transactionId, tid)
+		err = trips.PrepareDeleteTransaction(transactionId, tid, ctx)
 		if err != nil {
 			break
 		}
@@ -105,19 +106,18 @@ func NewDeleteTransaction(resourceId string) (string, error) {
 
 		for _, tid := range tids {
 			for r := 3; r > 0; r-- {
-				err = trips.UnprepareDeleteTransaction(transactionId, tid)
+				err = trips.UnprepareDeleteTransaction(transactionId, tid, ctx)
 				if err == nil {
 					break
 				}
 			}
 		}
 
-		for r := 3; r > 0; r-- {
-			err = cst.Kvs.HDel(ctx, "delete.ongoing", fmt.Sprintf("%s.expire", transactionId)).Err()
-			if err == nil {
-				break
-			}
-		}
+		cst.Kvs.HDel(ctx, "transactions",
+			transactionId,
+			transactionId+".type",
+			transactionId+".data",
+			transactionId+".expire").Result()
 
 		return "", errors.New("cannot create new delete transaction")
 	}
@@ -147,15 +147,17 @@ func PrepareDeleteTransaction(transactionId, resourceId string, ctx context.Cont
 	if err != nil {
 		return err
 	}
-	cst.Kvs.HSet(ctx, "delete.ongoing", fmt.Sprintf("%s.data.%s", transactionId, resourceId), string(b))
+	cst.Kvs.HSet(ctx, "backup", resourceId, string(b))
 	return nil
 }
 
 func UnPrepareDeleteTransaction(transactionId, resourceId string, ctx context.Context) error {
-
+	var err error
+	_, err = cst.Kvs.HDel(ctx, "resources", resourceId+".delete").Result()
+	return err
 }
 
-func ExecuteDeleteTransaction(transactionId, resourceId string) error {
+func ExecuteDeleteTransaction(transactionId, resourceId string, ctx context.Context) error {
 	rows, err := cst.Db.Query("select id from ? where userId = ?", cst.Ev.Var(cst.SqlTripTableVar), resourceId)
 	if err != nil {
 		return err
@@ -170,9 +172,27 @@ func ExecuteDeleteTransaction(transactionId, resourceId string) error {
 		tids = append(tids, tid)
 	}
 	for _, tid := range tids {
-		if err = trips.TryDelete(tid); err != nil {
+		if err = trips.ExecuteDeleteTransaction(transactionId, tid, ctx); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
+func RollbackDeleteTransaction(transactionId, resourceId string, ctx context.Context) error {
+	// Recover data from redis db
+	v, err := cst.Kvs.HGet(ctx, "backup", resourceId).Result()
+	if err != nil {
+		return err
+	}
+	var u User
+	err = json.Unmarshal([]byte(v), &u)
+	if err != nil {
+		return err
+	}
+	_, err = cst.Db.Exec(fmt.Sprintf("insert into %s (id, name, email, password) values (?, ?, ?, ?) on conflict (id) update set (id, name, email, password) = (excluded.id, excluded.name, excluded.email, excluded.password)", u.Id, u.Name, u.Email, u.Password))
+	if err != nil {
+		return err
+	}
+	return nil
 }

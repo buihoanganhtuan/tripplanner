@@ -8,7 +8,6 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"net/mail"
 	"os"
 	"strings"
 	"time"
@@ -38,25 +37,6 @@ type EnvironmentVariableMap struct {
 type jwtChecker struct {
 	mapClaims jwt.MapClaims
 	errClaim  string
-}
-
-type AnyError struct {
-	err error
-}
-
-func (a AnyError) Error() string {
-	return a.err.Error()
-}
-
-func (a *AnyError) Add(e error) {
-	if a.err != nil {
-		return
-	}
-	a.err = e
-}
-
-func (a *AnyError) Err() error {
-	return a.err
 }
 
 func (c *jwtChecker) checkClaim(name string, val interface{}, req bool) {
@@ -104,6 +84,9 @@ func (env *EnvironmentVariableMap) Fetch(names ...string) {
 	if env.err != nil {
 		return
 	}
+	if len(env.varMap) == 0 {
+		env.varMap = make(map[string]string)
+	}
 	for _, name := range names {
 		if _, exist := env.varMap[name]; exist {
 			continue
@@ -144,7 +127,7 @@ func (env *EnvironmentVariableMap) Err() error {
 	return env.err
 }
 
-func ValidateAccessToken(rq *http.Request, pk *rsa.PublicKey) (*jwt.Token, error) {
+func ExtractClaims(rq *http.Request, pk *rsa.PublicKey) (*jwt.Token, error) {
 	// check if there is any access token
 	if rq.Header.Get("Authorization") == "" {
 		return nil, fmt.Errorf("no access token")
@@ -165,47 +148,4 @@ func ValidateAccessToken(rq *http.Request, pk *rsa.PublicKey) (*jwt.Token, error
 	}
 
 	return token, nil
-}
-
-func CheckPasswordStrength(passwd string) bool {
-	noUpper, noDigit, noSpecial := true, true, true
-	for _, c := range passwd {
-		if isUpper(c) {
-			noUpper = false
-		}
-		if isDigit(c) {
-			noDigit = false
-		}
-		if !(isUpper(c) || isLower(c) || isDigit(c)) {
-			noSpecial = false
-		}
-	}
-
-	return !(noUpper || noDigit || noSpecial || len(passwd) < 8)
-}
-
-func CheckEmailFormat(email string) bool {
-	_, err := mail.ParseAddress(email)
-	return err == nil
-}
-
-func CheckUsername(username string) bool {
-	for _, c := range username {
-		if !isUpper(c) && !isLower(c) && !isDigit(c) {
-			return false
-		}
-	}
-	return len(username) > 0 && len(username) <= 30
-}
-
-func isUpper(c rune) bool {
-	return c >= 'A' && c <= 'Z'
-}
-
-func isLower(c rune) bool {
-	return c >= 'a' && c <= 'z'
-}
-
-func isDigit(c rune) bool {
-	return c >= '0' && c <= '9'
 }

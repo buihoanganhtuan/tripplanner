@@ -18,7 +18,7 @@ import (
 func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	id := mux.Vars(rq)["id"]
 
-	token, err := utils.ValidateAccessToken(rq, constants.Pk)
+	token, err := utils.ExtractClaims(rq, constants.Pk)
 
 	if err != nil {
 		return http.StatusUnauthorized, "invalid access token", fmt.Errorf("invalid access token: %v", err)
