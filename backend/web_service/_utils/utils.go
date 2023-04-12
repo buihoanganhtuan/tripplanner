@@ -127,7 +127,7 @@ func (env *EnvironmentVariableMap) Err() error {
 	return env.err
 }
 
-func ExtractClaims(rq *http.Request, pk *rsa.PublicKey) (*jwt.Token, error) {
+func ExtractClaims(rq *http.Request, pk *rsa.PublicKey) (jwt.MapClaims, error) {
 	// check if there is any access token
 	if rq.Header.Get("Authorization") == "" {
 		return nil, fmt.Errorf("no access token")
@@ -147,5 +147,10 @@ func ExtractClaims(rq *http.Request, pk *rsa.PublicKey) (*jwt.Token, error) {
 		return nil, err
 	}
 
-	return token, nil
+	mc, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, errors.New("invalid token claim datatype")
+	}
+
+	return mc, nil
 }
