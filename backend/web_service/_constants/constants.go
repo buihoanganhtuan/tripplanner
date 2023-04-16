@@ -20,36 +20,28 @@ var Pk *rsa.PublicKey
 var Ev utils.EnvironmentVariableMap
 
 const (
-	DatetimeFormat   = "2006-01-02 15:04:05 -0700"
-	SqlHostVar       = "PQ_HOST"
-	SqlPortVar       = "PQ_PORT"
-	SqlUsernameVar   = "PQ_USERNAME"
-	SqlPasswordVar   = "PQ_PASSWORD"
-	SqlWebDbNameVar  = "PQ_WEB_DBNAME"
-	SqlUserTableVar  = "PQ_USER_TABLE"
-	SqlTripTableVar  = "PQ_TRIP_TABLE"
-	KvsHostVar       = "REDIS_HOST"
-	KvsPortVar       = "REDIS_PORT"
-	KvsPasswordVar   = "REDIS_PASSWORD"
-	KvsDelHKeyVar    = "REDIS_DELETE_TRANS_KEY"
-	PublicKeyPathVar = "PUBLIC_KEY_PATH"
+	DatetimeFormat      = "2006-01-02 15:04:05 -0700"
+	SqlHostVar          = "PQ_HOST"
+	SqlPortVar          = "PQ_PORT"
+	SqlUsernameVar      = "PQ_USERNAME"
+	SqlPasswordVar      = "PQ_PASSWORD"
+	SqlWebDbNameVar     = "PQ_WEB_DBNAME"
+	SqlUserTableVar     = "PQ_USER_TABLE"
+	SqlTripTableVar     = "PQ_TRIP_TABLE"
+	SqlAnonTripTableVar = "PQ_ANON_TRIP_TABLE"
+	SqlEdgeTableVar     = "PQ_EDGE_TABLE"
+	KvsHostVar          = "REDIS_HOST"
+	KvsPortVar          = "REDIS_PORT"
+	KvsPasswordVar      = "REDIS_PASSWORD"
+	KvsDelHKeyVar       = "REDIS_DELETE_TRANS_KEY"
+	PublicKeyPathVar    = "PUBLIC_KEY_PATH"
+	AuthServiceName     = "Tripplanner:AuthService"
 )
 
 // Tagging to assist JSON Marshalling (converting a structured data into a JSON string)
 // Note that in this case, missing, null, and zero values are handled in the same way so
 // that greatly reduce complexity of UserResponse struct definition: no need to separate UserIn
 // (which doesn't use Optional) and UserOut (which uses Optional).
-type UserResponse struct {
-	Id       string   `json:"id,omitempty"`
-	Name     string   `json:"name,omitempty"`
-	JoinDate DateTime `json:"joinDate,omitempty"`
-}
-
-type UserRequest struct {
-	Id   string           `json:"id"`
-	Name Optional[string] `json:"name"`
-}
-
 type Optional[T any] struct {
 	Defined bool
 	Value   *T
@@ -58,16 +50,6 @@ type Optional[T any] struct {
 func (o *Optional[T]) UnmarshalJSON(data []byte) error {
 	o.Defined = true
 	return json.Unmarshal(data, &o.Value)
-}
-
-type DateTime struct {
-	Year   string `json:"year"`
-	Month  string `json:"month"`
-	Day    string `json:"day"`
-	Hour   string `json:"hour"`
-	Min    string `json:"min"`
-	Sec    string `json:"sec"`
-	Offset string `json:"timezone"`
 }
 
 func init() {

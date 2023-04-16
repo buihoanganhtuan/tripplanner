@@ -15,7 +15,7 @@ such is also 99% of APIs that claim to be RESTful today.
 
 */
 abstract class TripPlannerApi {
-    static version = "v1";
+    static version = "v1.0.0";
     static title = "Trip Planner API"
 
     // resource type: User
@@ -223,7 +223,11 @@ interface CopyTripRequest {
     destinationParentId: string;
     destinationId: string;
 }
-// ********************* Resource type definitions ************************
+
+
+/***********************************************
+            Resource type definitions
+***********************************************/
 interface User {
     id: string;
 
@@ -309,7 +313,7 @@ interface PointBeforeConstraint {
 
 interface Cost {
     amount: number;
-    unit: string;
+    unit: 'JPY' | 'USD';
 }
 
 interface Duration {
@@ -323,7 +327,6 @@ interface Datetime {
     day: number;
     hour: number;
     min: number;
-    sec: number;
     timezone: string;
 }
 

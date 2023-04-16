@@ -2,6 +2,7 @@ package trips
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 )
 
@@ -22,6 +23,6 @@ func UnprepareDeleteTransaction(transactionId, resourceId string, ctx context.Co
 
 }
 
-func ExecuteDeleteTransaction(transactionId, resourceId string, ctx context.Context) error {
+func ExecuteDeleteTransaction(tx *sql.Tx, resourceId string) error {
 
 }

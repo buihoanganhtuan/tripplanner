@@ -1,17 +1,13 @@
 package users
 
-import (
-	"fmt"
+import "fmt"
 
-	jwt "github.com/golang-jwt/jwt/v4"
-)
+func (se StatusError) Error() string {
+	return se.ClientMessage
+}
 
-// var fileServer = http.StripPrefix("/users", http.FileServer(http.Dir("./users/assets/")))
-
-// ********************** Auxiliary types *******************************
-type jwtChecker struct {
-	mapClaims jwt.MapClaims
-	errClaim  string
+func (se StatusError) Unwrap() error {
+	return se.Err
 }
 
 func (c *jwtChecker) checkClaim(name string, val interface{}, req bool) {
@@ -53,11 +49,4 @@ func (c *jwtChecker) Err() error {
 		return fmt.Errorf("error for claim %s", c.errClaim)
 	}
 	return nil
-}
-
-type User struct {
-	Id       string `json:"id"`
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
 }

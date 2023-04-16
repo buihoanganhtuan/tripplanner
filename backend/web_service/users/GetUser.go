@@ -1,6 +1,7 @@
 package users
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,52 +9,78 @@ import (
 	"strconv"
 	"time"
 
-	constants "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
+	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
+	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
 	"github.com/gorilla/mux"
 )
 
-func GetUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
+func GetUser(w http.ResponseWriter, rq *http.Request) error {
 	id := mux.Vars(rq)["id"]
 
-	rows, err := constants.Db.Query("select id, name, join_date from ? where id = ?", constants.Ev.Var(constants.SqlUserTableVar), id)
+	if !utils.VerifyBase32String(id, IdLengthChar) {
+		return StatusError{
+			Status:        InvalidId,
+			HttpStatus:    http.StatusBadRequest,
+			ClientMessage: InvalidIdMessage,
+		}
+	}
+
+	var uid, name, _joinDate string
+	err := cst.Db.QueryRow("select id, name, join_date from ? where id = ?", cst.Ev.Var(cst.SqlUserTableVar), id).
+		Scan(&uid, &name, &_joinDate)
 	if err != nil {
-		return http.StatusInternalServerError, "", fmt.Errorf("database connection error: %v", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return StatusError{
+				Status:        NoSuchUser,
+				HttpStatus:    http.StatusBadRequest,
+				ClientMessage: NoSuchUserMessage,
+			}
+		}
+		return StatusError{
+			Status:        DatabaseQueryError,
+			Err:           err,
+			HttpStatus:    http.StatusInternalServerError,
+			ClientMessage: DatabaseQueryErrorMessage,
+		}
 	}
 
-	if !rows.Next() {
-		return http.StatusInternalServerError, "user not found", errors.New("valid access token but user not found in DB")
-	}
-
-	var uid, name, joinDate string
-	rows.Scan(&uid, &name, &joinDate)
-
-	t, err := time.Parse(constants.DatetimeFormat, joinDate)
+	joinDate, err := time.Parse(cst.DatetimeFormat, _joinDate)
 
 	if err != nil {
-		return http.StatusInternalServerError, "error parsing join date", fmt.Errorf("error parsing join date: %v", err)
+		return StatusError{
+			Status:        ParseError,
+			Err:           err,
+			HttpStatus:    http.StatusInternalServerError,
+			ClientMessage: fmt.Sprintf(ParseErrorMessage, "joinDate"),
+		}
 	}
 
-	_, offset := t.Zone()
+	_, offset := joinDate.Zone()
 
-	resource, err := json.Marshal(constants.UserResponse{
+	resource, err := json.Marshal(UserResponse{
 		Id:   uid,
 		Name: name,
-		JoinDate: constants.DateTime{
-			Year:   strconv.Itoa(t.Year()),
-			Month:  strconv.Itoa(int(t.Month())),
-			Day:    strconv.Itoa(t.Day()),
-			Hour:   strconv.Itoa(t.Hour()),
-			Min:    strconv.Itoa(t.Minute()),
+		JoinDate: DateTime{
+			Year:   strconv.Itoa(joinDate.Year()),
+			Month:  strconv.Itoa(int(joinDate.Month())),
+			Day:    strconv.Itoa(joinDate.Day()),
+			Hour:   strconv.Itoa(joinDate.Hour()),
+			Min:    strconv.Itoa(joinDate.Minute()),
 			Offset: strconv.Itoa(offset),
 		},
 	})
 
 	if err != nil {
-		return http.StatusInternalServerError, "error marshalling resource", fmt.Errorf("error marshalling resource: %v", err)
+		return StatusError{
+			Status:        MarshallingError,
+			Err:           err,
+			HttpStatus:    http.StatusInternalServerError,
+			ClientMessage: MarshallingErrorMessage,
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(resource)
 
-	return 0, "", nil
+	return nil
 }

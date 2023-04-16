@@ -4,8 +4,6 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
-	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -14,17 +12,6 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v4"
 )
-
-func ErrorHandler(f func(w http.ResponseWriter, rq *http.Request) (int, string, error)) http.HandlerFunc {
-	return func(w http.ResponseWriter, rq *http.Request) {
-		code, msg, err := f(w, rq)
-		if err != nil {
-			w.WriteHeader(code)
-			io.WriteString(w, msg)
-			log.Println(err)
-		}
-	}
-}
 
 // unsafe manager type to manage environment variables
 // Attempting to get a variable via Var() when the manager is in error state or
@@ -117,10 +104,27 @@ func GetBase32RandomString(length int) string {
 	checkSum := 0
 	for i := 0; i < length; i++ {
 		b[i] = b32Charset[rnd.Intn(32)]
-		checkSum = (checkSum<<5 + int(b[i])) % 37
+		checkSum = (checkSum*int('Z') + int(b[i])) % 37
 	}
 	b[length] = checksumCharset[checkSum]
 	return string(b)
+}
+
+func VerifyBase32String(s string, length int) bool {
+	if len(s) != length+1 {
+		return false
+	}
+	s = strings.ToUpper(s)
+	for i := range s {
+
+	}
+
+	const checksumCharset = "0123456789ABCDEFGHJKMNPQRSTVWXYZ*~$=U"
+	checkSum := 0
+	for i := 0; i < len(s)-1; i++ {
+		checkSum = (checkSum*int('Z') + int(s[i])) % 37
+	}
+	return s[len(s)-1] == checksumCharset[checkSum]
 }
 
 func (env *EnvironmentVariableMap) Err() error {

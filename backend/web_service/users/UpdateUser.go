@@ -10,23 +10,30 @@ import (
 
 	"github.com/gorilla/mux"
 
-	constants "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
+	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
 	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
-	jwt "github.com/golang-jwt/jwt/v4"
 )
 
-func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
+func UpdateUser(w http.ResponseWriter, rq *http.Request) error {
 	id := mux.Vars(rq)["id"]
 
-	token, err := utils.ExtractClaims(rq, constants.Pk)
-
-	if err != nil {
-		return http.StatusUnauthorized, "invalid access token", fmt.Errorf("invalid access token: %v", err)
+	if !utils.VerifyBase32String(id, IdLengthChar) {
+		return StatusError{
+			Status:        InvalidId,
+			HttpStatus:    http.StatusBadRequest,
+			ClientMessage: InvalidIdMessage,
+		}
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return http.StatusBadRequest, "", fmt.Errorf("error casting token.Claims to jwt.MapClaims")
+	claims, err := utils.ExtractClaims(rq, cst.Pk)
+
+	if err != nil {
+		return StatusError{
+			Status:        InvalidToken,
+			Err:           err,
+			HttpStatus:    http.StatusBadRequest,
+			ClientMessage: InvalidTokenMessge,
+		}
 	}
 
 	checker := jwtChecker{
@@ -34,80 +41,141 @@ func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	}
 
 	now := time.Now().Unix()
-	checker.checkClaim("iss", "auth_service", true)
+	checker.checkClaim("iss", cst.AuthServiceName, true)
 	checker.checkClaim("sub", id, true)
 	checker.checkClaim("iat", now, false)
 	checker.checkClaim("exp", now, true)
 
 	if checker.Err() != nil {
-		return http.StatusUnauthorized, "invalid JWT claim", fmt.Errorf("error validating JWT claims: %v", err)
+		return StatusError{
+			Status:        InvalidClaim,
+			Err:           checker.Err(),
+			HttpStatus:    http.StatusBadRequest,
+			ClientMessage: fmt.Sprintf(InvalidClaimMessage, checker.errClaim),
+		}
 	}
 
 	var data []byte
 	_, err = rq.Body.Read(data)
 
 	if err != nil {
-		return http.StatusBadRequest, "error getting raw request body", fmt.Errorf("error getting raw request body: %v", err)
+		return StatusError{
+			Status:        InvalidRequestBody,
+			Err:           err,
+			HttpStatus:    http.StatusBadRequest,
+			ClientMessage: InvalidRequestBodyMessage,
+		}
 	}
 
-	var res constants.UserRequest
+	var res UserRequest
 	json.Unmarshal(data, &res)
 
 	// validate fields
 	// name
 	if res.Name.Defined {
 		if *res.Name.Value == "" {
-			return http.StatusBadRequest, "name field, if defined, cannot be an empty string", errors.New("empty name change")
+			return StatusError{
+				Status:        InvalidFieldValue,
+				Err:           errors.New("empty username"),
+				HttpStatus:    http.StatusBadRequest,
+				ClientMessage: fmt.Sprintf(InvalidFieldValueMessage, "name"),
+			}
 		}
 
-		rows, err := constants.Db.Query("select count(*) from ? where name = ?",
-			constants.Ev.Var(constants.SqlUserTableVar),
-			*res.Name.Value)
+		rows, err := cst.Db.Query("select count(*) from ? where name = ?", cst.Ev.Var(cst.SqlUserTableVar), *res.Name.Value)
 		if err != nil {
-			return http.StatusInternalServerError, "cannot query database", fmt.Errorf("cannot query database for username change check: %v", err)
+			return StatusError{
+				Status:        DatabaseQueryError,
+				Err:           err,
+				HttpStatus:    http.StatusInternalServerError,
+				ClientMessage: DatabaseQueryErrorMessage,
+			}
 		}
+
 		rows.Next()
 		if rows.Err() != nil {
-			return http.StatusInternalServerError, "database error", fmt.Errorf("something is wrong with DB: %v", rows.Err())
+			return StatusError{
+				Status:        UnknownError,
+				Err:           rows.Err(),
+				HttpStatus:    http.StatusInternalServerError,
+				ClientMessage: UnknownErrorMessage,
+			}
 		}
 		var cnt int
-		rows.Scan(&cnt)
-		if cnt >= 1 {
-			return http.StatusBadRequest, "username already exist", fmt.Errorf("duplicate username change %s", *res.Name.Value)
+		err = rows.Scan(&cnt)
+		if err != nil {
+			return StatusError{
+				Status:        DatabaseQueryError,
+				Err:           err,
+				HttpStatus:    http.StatusInternalServerError,
+				ClientMessage: DatabaseQueryErrorMessage,
+			}
 		}
-		_, err = constants.Db.Exec("update ? set name = ? where id = ?",
-			constants.Ev.Var(constants.SqlUserTableVar),
+		if cnt >= 1 {
+			return StatusError{
+				Status:        UsernameExisted,
+				HttpStatus:    http.StatusConflict,
+				ClientMessage: UsernameExistedMessage,
+			}
+		}
+		_, err = cst.Db.Exec("update ? set name = ? where id = ?",
+			cst.Ev.Var(cst.SqlUserTableVar),
 			*res.Name.Value,
 			id)
 		if err != nil {
-			return http.StatusInternalServerError, "fail to update username", fmt.Errorf("fail to update username: %s", err)
+			return StatusError{
+				Status:        DatabaseQueryError,
+				Err:           err,
+				HttpStatus:    http.StatusInternalServerError,
+				ClientMessage: DatabaseQueryErrorMessage,
+			}
 		}
 	}
 
-	rows, err := constants.Db.Query("select name, join_date from ? where id = ?", constants.Ev.Var(constants.SqlUserTableVar), id)
+	rows, err := cst.Db.Query("select name, join_date from ? where id = ?", cst.Ev.Var(cst.SqlUserTableVar), id)
 	if err != nil {
-		return http.StatusInternalServerError, "fail to retrieve updated user data", fmt.Errorf("fail to retrieve updated user data: %v", err)
+		return StatusError{
+			Status:        DatabaseQueryError,
+			Err:           err,
+			HttpStatus:    http.StatusInternalServerError,
+			ClientMessage: DatabaseQueryErrorMessage,
+		}
+	}
+
+	if !rows.Next() {
+		if rows.Err() != nil {
+			return StatusError{
+				Status:        DatabaseQueryError,
+				Err:           rows.Err(),
+				HttpStatus:    http.StatusInternalServerError,
+				ClientMessage: DatabaseQueryErrorMessage,
+			}
+		}
+		return StatusError{
+			Status:        NoSuchUser,
+			HttpStatus:    http.StatusBadRequest,
+			ClientMessage: NoSuchUserMessage,
+		}
 	}
 
 	var name, joinDateStr string
-	if !rows.Next() {
-		if rows.Err() != nil {
-			return http.StatusInternalServerError, "fail to retrieve updated user data", fmt.Errorf("fail to retrieve updated user data: %v", err)
-		}
-		return http.StatusBadRequest, "trying to update a non-existing user", fmt.Errorf("trying to update a non-existing user: %s", id)
-	}
 	rows.Scan(&name, &joinDateStr)
-	t, err := time.Parse(constants.DatetimeFormat, joinDateStr)
+	t, err := time.Parse(cst.DatetimeFormat, joinDateStr)
 	if err != nil {
-		return http.StatusInternalServerError, "fail to parse user join date", fmt.Errorf("fail to parse user join date: %v", err)
+		return StatusError{
+			Status:        ParseError,
+			Err:           err,
+			HttpStatus:    http.StatusInternalServerError,
+			ClientMessage: fmt.Sprintf(ParseErrorMessage, "joinDate"),
+		}
 	}
 
 	data = nil
 	var _, offset = t.Zone()
-	data, err = json.Marshal(constants.UserResponse{
+	data, err = json.Marshal(UserResponse{
 		Id:   id,
 		Name: name,
-		JoinDate: constants.DateTime{
+		JoinDate: DateTime{
 			Year:   strconv.Itoa(t.Year()),
 			Month:  strconv.Itoa(int(t.Month())),
 			Day:    strconv.Itoa(t.Day()),
@@ -120,5 +188,5 @@ func UpdateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
-	return 0, "", nil
+	return nil
 }
