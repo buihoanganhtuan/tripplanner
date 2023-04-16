@@ -1,8 +1,39 @@
 package trips
 
-import "net/http"
+import (
+	"net/http"
 
-func PlanTrips(w http.ResponseWriter, rq *http.Request) (error, string, int) {
+	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
+	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
+	"github.com/gorilla/mux"
+)
 
-	return nil, "", 0
+func PlanAnonymousTrip(w http.ResponseWriter, rq *http.Request) error {
+	return nil
+}
+
+func PlanRegisteredTrip(w http.ResponseWriter, rq *http.Request) error {
+	id := mux.Vars(rq)["id"]
+
+	if !utils.VerifyBase32String(id, IdLengthChar) {
+		return StatusError{
+			Status:        InvalidId,
+			HttpStatus:    http.StatusBadRequest,
+			ClientMessage: InvalidIdMessage,
+		}
+	}
+
+	cm, err := utils.ExtractClaims(rq, cst.Pk)
+	if err != nil {
+		return StatusError{
+			Status:        InvalidToken,
+			Err:           err,
+			HttpStatus:    http.StatusBadRequest,
+			ClientMessage: InvalidTokenMessge,
+		}
+	}
+
+	cm.VerifyIssuer(cst.AuthServiceName, true)
+	cm.VerifyAudience(cst.WebServiceName, true)
+
 }
