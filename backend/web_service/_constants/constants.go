@@ -36,6 +36,7 @@ const (
 	KvsDelHKeyVar       = "REDIS_DELETE_TRANS_KEY"
 	PublicKeyPathVar    = "PUBLIC_KEY_PATH"
 	AuthServiceName     = "Tripplanner:AuthService"
+	WebServiceName      = "Tripplanner:WebService"
 )
 
 // Tagging to assist JSON Marshalling (converting a structured data into a JSON string)

@@ -3,6 +3,7 @@ package trips
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -82,7 +83,6 @@ func GetAnonymousTrip(w http.ResponseWriter, rq *http.Request) error {
 
 	var edges []Edge
 	var rows *sql.Rows
-	pointSet := map[string]bool{}
 	rows, err = tx.Query("select PointId, NextPointId, Start, DurationHr, DurationMin, CostAmount, CostUnit, Transport from ? order by ord where tripId = ?", cst.SqlEdgeTableVar, id)
 	if err != nil {
 		return StatusError{
@@ -117,18 +117,10 @@ func GetAnonymousTrip(w http.ResponseWriter, rq *http.Request) error {
 			}
 		}
 
-		pointSet[pointId] = true
-		pointSet[nextPointId] = true
 		edges = append(edges, Edge{
 			PointId:     pointId,
 			NextPointId: nextPointId,
-			Start: Datetime{
-				Year:  start.Year(),
-				Month: int(start.Month()),
-				Day:   start.Day(),
-				Hour:  start.Hour(),
-				Min:   start.Minute(),
-			},
+			Start:       createJsonTime(&start),
 			Duration: Duration{
 				Hour: durationHr,
 				Min:  durationMin,
@@ -141,8 +133,44 @@ func GetAnonymousTrip(w http.ResponseWriter, rq *http.Request) error {
 		})
 	}
 
-	// TODO: Query all Geopoints for all recorded points and piece it together into the defined response format
+	err = rows.Err()
+	if err != nil {
+		return StatusError{
+			Status:        DatabaseQueryError,
+			Err:           err,
+			HttpStatus:    http.StatusInternalServerError,
+			ClientMessage: DatabaseQueryErrorMessage,
+		}
+	}
 
+	var body []byte
+	body, err = json.Marshal(Trip{
+		Id:           id,
+		Type:         "anonymous",
+		Name:         name,
+		DateExpected: createJsonTime(&expectedDate),
+		DateCreated:  createJsonTime(&createdDate),
+		LastModified: createJsonTime(&lastModified),
+		Budget: Cost{
+			Amount: budget,
+			Unit:   budgetUnit,
+		},
+		PreferredMode: transportMode,
+		PlanResult:    edges,
+	})
+
+	if err != nil {
+		return StatusError{
+			Status:        UnknownError,
+			Err:           err,
+			HttpStatus:    http.StatusInternalServerError,
+			ClientMessage: UnknownErrorMessage,
+		}
+	}
+
+	w.Write(body)
+	w.WriteHeader(http.StatusOK)
+	return nil
 }
 
 func GetRegisteredTrip(w http.ResponseWriter, rq *http.Request) error {

@@ -337,7 +337,6 @@ interface Edge {
     duration: Duration;
     cost: Cost;
     transportMode: 'train' | 'bus' | 'walk'
-    geoPointId: string[];
 }
 
 interface KeyValuePair {

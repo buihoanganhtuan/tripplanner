@@ -2,17 +2,14 @@ package trips
 
 import (
 	"time"
-
-	constants "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
 )
 
-func ParseDate(s string) (time.Time, error) {
-	t, err := time.Parse(constants.DatetimeFormat, s)
-	if err != nil {
-		return time.Time{}, StatusError{
-			Status: ParseError,
-			Err:    err,
-		}
+func createJsonTime(t *time.Time) Datetime {
+	return Datetime{
+		Year:  t.Year(),
+		Month: int(t.Month()),
+		Day:   t.Day(),
+		Hour:  t.Hour(),
+		Min:   t.Minute(),
 	}
-	return t, nil
 }

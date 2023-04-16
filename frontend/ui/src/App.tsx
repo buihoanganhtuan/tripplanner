@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { LoginPane } from './components/LoginPane'
 
 function App() {
   const [count, setCount] = useState<number>(0)
@@ -10,9 +11,9 @@ function App() {
   return (
     <div className="App">
       <div className="shadow-lg bg-green-300">
-        "Hello"
+        "Welcome to Trip Planner"
       </div>
-      <button onClick={onClick}/>
+      <LoginPane />
     </div>
   )
 }
