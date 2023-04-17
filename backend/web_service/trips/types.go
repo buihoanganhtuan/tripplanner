@@ -75,3 +75,19 @@ type StatusError struct {
 	HttpStatus    int
 	ClientMessage string
 }
+
+type GraphError []string
+
+type CycleError GraphError
+type MultiFirstError GraphError
+type MultiLastError GraphError
+type SimulFirstAndLastError GraphError
+type UnknownNodeIdError GraphError
+
+type Node struct {
+	Id     string
+	Before []string
+	After  []string
+	First  bool
+	Last   bool
+}

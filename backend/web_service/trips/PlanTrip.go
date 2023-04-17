@@ -1,6 +1,7 @@
 package trips
 
 import (
+	"fmt"
 	"net/http"
 
 	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
@@ -33,7 +34,13 @@ func PlanRegisteredTrip(w http.ResponseWriter, rq *http.Request) error {
 		}
 	}
 
-	cm.VerifyIssuer(cst.AuthServiceName, true)
-	cm.VerifyAudience(cst.WebServiceName, true)
+	ok, cln := verifyJwtClaims(cm)
+	if !ok {
+		return StatusError{
+			Status:        InvalidClaim,
+			HttpStatus:    http.StatusBadRequest,
+			ClientMessage: fmt.Sprintf(InvalidClaimMessage, cln),
+		}
+	}
 
 }

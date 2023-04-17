@@ -104,7 +104,7 @@ func GetBase32RandomString(length int) string {
 	checkSum := 0
 	for i := 0; i < length; i++ {
 		b[i] = b32Charset[rnd.Intn(32)]
-		checkSum = (checkSum*int('Z') + int(b[i])) % 37
+		checkSum = (checkSum*(int('Z')+1) + int(b[i])) % 37
 	}
 	b[length] = checksumCharset[checkSum]
 	return string(b)
@@ -115,14 +115,10 @@ func VerifyBase32String(s string, length int) bool {
 		return false
 	}
 	s = strings.ToUpper(s)
-	for i := range s {
-
-	}
-
 	const checksumCharset = "0123456789ABCDEFGHJKMNPQRSTVWXYZ*~$=U"
 	checkSum := 0
 	for i := 0; i < len(s)-1; i++ {
-		checkSum = (checkSum*int('Z') + int(s[i])) % 37
+		checkSum = (checkSum*(int('Z')+1) + int(s[i])) % 37
 	}
 	return s[len(s)-1] == checksumCharset[checkSum]
 }
