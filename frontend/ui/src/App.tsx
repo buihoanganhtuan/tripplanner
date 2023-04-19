@@ -9,9 +9,9 @@ function App() {
   }
 
   return (
-    <div className="App">
-      <div className="shadow-lg bg-green-300">
-        "Welcome to Trip Planner"
+    <div className="App bg-gradient-to-b from-indigo-500 to-cyan-500 h-screen font-sans">
+      <div className="text-7xl text-emerald-200 text-center py-11">
+        Welcome to Trip Planner
       </div>
       <LoginPane />
     </div>

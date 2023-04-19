@@ -33,3 +33,13 @@ func (ml MultiLastError) Error() string {
 func (un UnknownNodeIdError) Error() string {
 	return GraphError(un).Error()
 }
+
+func (ce CycleError) Error() string {
+	ges := []GraphError(ce)
+	var sb strings.Builder
+	for _, ge := range ges {
+		sb.WriteString(ge.Error())
+		sb.WriteString("\\n")
+	}
+	return sb.String()
+}

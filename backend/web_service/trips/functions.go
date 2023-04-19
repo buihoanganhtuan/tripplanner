@@ -34,7 +34,7 @@ func verifyJwtClaims(cm jwt.MapClaims) (bool, string) {
 	// one or multiple roles, depending on our policy
 }
 
-func topologicalSort(nodes []Node, lim int) ([][]string, error) {
+func topologicalSort(nodes []Node, lim int) (PlanResults, error) {
 	nameMap := map[string]int{}
 	nameRevMap := map[int]string{}
 
@@ -77,7 +77,6 @@ func topologicalSort(nodes []Node, lim int) ([][]string, error) {
 
 	// BFS
 	indeg := make([]int, len(nameMap))
-	outdeg := make([]int, len(nameMap))
 	adj := make([][]int, len(nameMap))
 	for i, node := range nodes {
 		for _, prev := range node.Before {
@@ -87,7 +86,6 @@ func topologicalSort(nodes []Node, lim int) ([][]string, error) {
 				continue
 			}
 			indeg[i]++
-			outdeg[j]++
 			adj[j] = append(adj[j], i)
 		}
 		for _, next := range node.After {
@@ -97,10 +95,8 @@ func topologicalSort(nodes []Node, lim int) ([][]string, error) {
 				continue
 			}
 			indeg[j]++
-			outdeg[i]++
 			adj[i] = append(adj[i], j)
 		}
-
 	}
 
 	if len(unknownNodeIds) > 0 {
@@ -108,11 +104,20 @@ func topologicalSort(nodes []Node, lim int) ([][]string, error) {
 	}
 
 	// Check for cycle
+	cycles := GetCycles(indeg, adj)
+	if cycles != nil {
+		var ce []GraphError
+		for _, c := range cycles {
+			ce = append(ce, backwardMap(c))
+		}
+		return nil, CycleError(ce)
+	}
 
 	// O(N^2) because we want to check for more than one route
+
 }
 
-func CheckCycles(indeg []int, adj [][]int) [][]int {
+func GetCycles(indeg []int, adj [][]int) Cycles {
 	var indegCp []int
 	indegCp = append(indegCp, indeg...)
 
@@ -135,7 +140,7 @@ func CheckCycles(indeg []int, adj [][]int) [][]int {
 	}
 
 	ok := true
-	for i, d := range indegCp {
+	for _, d := range indegCp {
 		if d > 0 {
 			ok = false
 		}
@@ -145,12 +150,7 @@ func CheckCycles(indeg []int, adj [][]int) [][]int {
 		return nil
 	}
 
-	st = make([]int, 0)
-	return GetAllCycles(adj)
-}
-
-func GetAllCycles(adj [][]int) [][]int {
-	var res [][]int
+	var res Cycles
 
 	visited := make([]bool, len(adj))
 	inStack := make([]bool, len(adj))
@@ -166,18 +166,16 @@ func GetAllCycles(adj [][]int) [][]int {
 		path = append(path, i)
 		for _, j := range adj[i] {
 			if inStack[j] {
-				// Found cycle
-				var cycle []int
+				// Found c
+				var c []int
 				var add bool
 				for _, node := range path {
-					if node == j {
-						add = true
-					}
+					add = add || node == j
 					if add {
-						cycle = append(cycle, node)
+						c = append(c, node)
 					}
 				}
-				res = append(res, cycle)
+				res = append(res, c)
 			}
 			dfs(j)
 		}

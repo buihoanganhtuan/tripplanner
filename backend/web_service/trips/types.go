@@ -78,11 +78,17 @@ type StatusError struct {
 
 type GraphError []string
 
-type CycleError GraphError
+type CycleError []GraphError
 type MultiFirstError GraphError
 type MultiLastError GraphError
 type SimulFirstAndLastError GraphError
 type UnknownNodeIdError GraphError
+
+type PlanResult []string
+type PlanResults []PlanResult
+
+type Cycle []int
+type Cycles []Cycle
 
 type Node struct {
 	Id     string

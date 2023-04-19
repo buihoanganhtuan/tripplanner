@@ -14,13 +14,18 @@ export function LoginPane() {
     }
 
     return (
-        <div className="">
-            <div className="bg-green-300">Login</div>
-            <label htmlFor="id">Username or Email</label>
-            <input type="text" name="id" onChange={onChange} className={`${idState}`}/>
-            <div>{"Error count " + errorCount}</div>
-            <label htmlFor="password">Password</label>
-            <input type="text" name="password" className="bg-green-300"></input>
+        <div className="border-green-950 flex-col max-w-[50%]">
+            <div className="text-center text-emerald-200">Login</div>
+            <div className="flex-col">
+                <div className="py-3">
+                    <label htmlFor="id" className="pe-3">Username or Email</label>
+                    <input type="text" name="id" onChange={onChange} className={`${idState}`}/>
+                </div>
+                <div>
+                    <label htmlFor="password" className="pe-3">Password</label>
+                    <input type="text" name="password" className="bg-green-300"></input>
+                </div>
+            </div>
         </div>
     )
 }
