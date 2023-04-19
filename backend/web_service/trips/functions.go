@@ -37,7 +37,6 @@ func verifyJwtClaims(cm jwt.MapClaims) (bool, string) {
 func topologicalSort(nodes []Node, lim int) ([][]string, error) {
 	nameMap := map[string]int{}
 	nameRevMap := map[int]string{}
-	adj := map[int][]int{}
 
 	var firstNode, lastNode, firstAndLast []int
 	for i, node := range nodes {
@@ -79,6 +78,7 @@ func topologicalSort(nodes []Node, lim int) ([][]string, error) {
 	// BFS
 	indeg := make([]int, len(nameMap))
 	outdeg := make([]int, len(nameMap))
+	adj := make([][]int, len(nameMap))
 	for i, node := range nodes {
 		for _, prev := range node.Before {
 			j, ok := nameMap[prev]
@@ -107,7 +107,86 @@ func topologicalSort(nodes []Node, lim int) ([][]string, error) {
 		return nil, UnknownNodeIdError(unknownNodeIds)
 	}
 
-	// TODO
-	var res [][]string
+	// Check for cycle
 
+	// O(N^2) because we want to check for more than one route
+}
+
+func CheckCycles(indeg []int, adj [][]int) [][]int {
+	var indegCp []int
+	indegCp = append(indegCp, indeg...)
+
+	var st []int
+	for i, d := range indegCp {
+		if d == 0 {
+			st = append(st, i)
+		}
+	}
+
+	for len(st) > 0 {
+		i := st[len(st)-1]
+		st = st[:len(st)-1]
+		for _, j := range adj[i] {
+			indegCp[j]--
+			if indegCp[j] == 0 {
+				st = append(st, j)
+			}
+		}
+	}
+
+	ok := true
+	for i, d := range indegCp {
+		if d > 0 {
+			ok = false
+		}
+	}
+
+	if ok {
+		return nil
+	}
+
+	st = make([]int, 0)
+	return GetAllCycles(adj)
+}
+
+func GetAllCycles(adj [][]int) [][]int {
+	var res [][]int
+
+	visited := make([]bool, len(adj))
+	inStack := make([]bool, len(adj))
+	var path []int
+
+	var dfs func(int)
+	dfs = func(i int) {
+		if visited[i] {
+			return
+		}
+		visited[i] = true
+		inStack[i] = true
+		path = append(path, i)
+		for _, j := range adj[i] {
+			if inStack[j] {
+				// Found cycle
+				var cycle []int
+				var add bool
+				for _, node := range path {
+					if node == j {
+						add = true
+					}
+					if add {
+						cycle = append(cycle, node)
+					}
+				}
+				res = append(res, cycle)
+			}
+			dfs(j)
+		}
+		path = path[:len(path)-1]
+		inStack[i] = false
+	}
+
+	for i := 0; i < len(adj); i++ {
+		dfs(i)
+	}
+	return res
 }
