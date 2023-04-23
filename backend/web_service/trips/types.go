@@ -1,5 +1,7 @@
 package trips
 
+import "net/http"
+
 /*
 ***********************************************************
 
@@ -67,6 +69,12 @@ type Cost struct {
 
 ***********************************************************
 */
+
+type Middleware http.Handler
+type MiddlewareGenerator func(http.Handler) Middleware
+type MiddlewareGeneratorConfigurator func(conf map[string]interface{}) MiddlewareGenerator
+type JwtMiddlewareGeneneratorConfigurator MiddlewareGeneratorConfigurator
+
 type Status int
 
 type StatusError struct {

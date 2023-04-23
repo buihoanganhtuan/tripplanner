@@ -110,10 +110,7 @@ func GetBase32RandomString(length int) string {
 	return string(b)
 }
 
-func VerifyBase32String(s string, length int) bool {
-	if len(s) != length+1 {
-		return false
-	}
+func VerifyBase32String(s string) bool {
 	s = strings.ToUpper(s)
 	const checksumCharset = "0123456789ABCDEFGHJKMNPQRSTVWXYZ*~$=U"
 	checkSum := 0

@@ -48,6 +48,26 @@ type Optional[T any] struct {
 	Value   *T
 }
 
+// Conventions followed: https://google.github.io/styleguide/jsoncstyleguide.xml#Reserved_Property_Names_in_the_error_object
+type AppError struct {
+	Err  error
+	Resp ErrorResponse
+}
+
+type ErrorResponse struct {
+	Code    int               `json:"code"`
+	Message string            `json:"message,omitempty"`
+	Errors  []ErrorDescriptor `json:"errors,omitempty"`
+}
+
+type ErrorDescriptor struct {
+	Domain       string `json:"domain,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	Message      string `json:"message,omitempty"`
+	Location     string `json:"location,omitempty"`
+	LocationType string `json:"location,omitempty"`
+}
+
 func (o *Optional[T]) UnmarshalJSON(data []byte) error {
 	o.Defined = true
 	return json.Unmarshal(data, &o.Value)

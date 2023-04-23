@@ -1,6 +1,8 @@
 package trips
 
 import (
+	"fmt"
+	"net/http"
 	"time"
 
 	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
@@ -14,6 +16,41 @@ func createJsonTime(t *time.Time) Datetime {
 		Day:   t.Day(),
 		Hour:  t.Hour(),
 		Min:   t.Minute(),
+	}
+}
+
+func newServerParseError(field string, err error) StatusError {
+	return StatusError{
+		Status:     ParseError,
+		Err:        fmt.Errorf(ParseErrorMessage+": %v", field, err),
+		HttpStatus: http.StatusInternalServerError,
+	}
+}
+
+func newClientParseError(field string, err error) StatusError {
+	return StatusError{
+		Status:        ParseError,
+		Err:           err,
+		HttpStatus:    http.StatusBadRequest,
+		ClientMessage: fmt.Sprintf(ParseErrorMessage, field),
+	}
+}
+
+func newDatabaseQueryError(err error) StatusError {
+	return StatusError{
+		Status:        DatabaseQueryError,
+		Err:           err,
+		HttpStatus:    http.StatusInternalServerError,
+		ClientMessage: DatabaseQueryErrorMessage,
+	}
+}
+
+func newDatabaseTransactionError(err error) StatusError {
+	return StatusError{
+		Status:        DatabaseTransactionError,
+		Err:           err,
+		HttpStatus:    http.StatusInternalServerError,
+		ClientMessage: DatabaseTransactionErrorMessage,
 	}
 }
 
