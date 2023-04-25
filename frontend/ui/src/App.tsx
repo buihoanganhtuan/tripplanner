@@ -9,11 +9,17 @@ function App() {
   }
 
   return (
-    <div className="App bg-gradient-to-b from-indigo-500 to-cyan-500 h-screen font-sans">
-      <div className="text-7xl text-emerald-200 text-center py-11">
+    <div className="App grid content-between grid-rows-landing gap-y-5 justify-items-center items-center bg-gradient-to-b from-indigo-500 to-cyan-500 h-screen font-sans">
+      <div className="row-start-1">
+        Navbar goes here
+      </div>
+      <div className="row-start-2 text-7xl text-emerald-200 text-center py-11">
         Welcome to Trip Planner
       </div>
-      <LoginPane />
+      <div className="row-start-3">
+        <LoginPane />
+      </div>
+      
     </div>
   )
 }
