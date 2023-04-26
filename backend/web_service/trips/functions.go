@@ -3,72 +3,36 @@ package trips
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
-	"github.com/golang-jwt/jwt/v4"
 )
 
-func createJsonTime(t *time.Time) Datetime {
-	return Datetime{
-		Year:  t.Year(),
-		Month: int(t.Month()),
-		Day:   t.Day(),
-		Hour:  t.Hour(),
-		Min:   t.Minute(),
+func newServerParseError() *cst.ErrorResponse {
+	return &cst.ErrorResponse{
+		Code:    http.StatusInternalServerError,
+		Message: "server-side parsing error",
 	}
 }
 
-func newServerParseError(field string, err error) StatusError {
-	return StatusError{
-		Status:     ParseError,
-		Err:        fmt.Errorf(ParseErrorMessage+": %v", field, err),
-		HttpStatus: http.StatusInternalServerError,
+func newClientParseError(field string) *cst.ErrorResponse {
+	return &cst.ErrorResponse{
+		Code:    http.StatusBadRequest,
+		Message: fmt.Sprintf("fail to parse field %s", field),
 	}
 }
 
-func newClientParseError(field string, err error) StatusError {
-	return StatusError{
-		Status:        ParseError,
-		Err:           err,
-		HttpStatus:    http.StatusBadRequest,
-		ClientMessage: fmt.Sprintf(ParseErrorMessage, field),
+func newDatabaseQueryError() *cst.ErrorResponse {
+	return &cst.ErrorResponse{
+		Code:    http.StatusInternalServerError,
+		Message: "database query error",
 	}
 }
 
-func newDatabaseQueryError(err error) StatusError {
-	return StatusError{
-		Status:        DatabaseQueryError,
-		Err:           err,
-		HttpStatus:    http.StatusInternalServerError,
-		ClientMessage: DatabaseQueryErrorMessage,
+func newUnknownError() *cst.ErrorResponse {
+	return &cst.ErrorResponse{
+		Code:    http.StatusInternalServerError,
+		Message: "unknown server-side error",
 	}
-}
-
-func newDatabaseTransactionError(err error) StatusError {
-	return StatusError{
-		Status:        DatabaseTransactionError,
-		Err:           err,
-		HttpStatus:    http.StatusInternalServerError,
-		ClientMessage: DatabaseTransactionErrorMessage,
-	}
-}
-
-func verifyJwtClaims(cm jwt.MapClaims) (bool, string) {
-	if !cm.VerifyIssuer(cst.AuthServiceName, true) {
-		return false, "iss"
-	}
-	if !cm.VerifyAudience(cst.WebServiceName, true) {
-		return false, "aud"
-	}
-	if !cm.VerifyExpiresAt(time.Now().Unix(), true) {
-		return false, "exp"
-	}
-	// TODO: implement a custom JSON-valued claim to implement authorization
-	// We have a set of (resource, method) pairs. Each security role refers to
-	// a specific set of those pairs and indicates that the role can perform
-	// those specific methods on those specific resources. An identity can assume
-	// one or multiple roles, depending on our policy
 }
 
 func topologicalSort(nodes []Node, lim int) (PlanResults, error) {

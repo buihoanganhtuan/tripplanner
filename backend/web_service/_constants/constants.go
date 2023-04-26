@@ -6,8 +6,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
 	"github.com/golang-jwt/jwt/v4"
@@ -49,6 +51,8 @@ type Optional[T any] struct {
 }
 
 // Conventions followed: https://google.github.io/styleguide/jsoncstyleguide.xml#Reserved_Property_Names_in_the_error_object
+type ErrorHandler func(http.ResponseWriter, *http.Request) (error, *ErrorResponse)
+
 type AppError struct {
 	Err  error
 	Resp ErrorResponse
@@ -66,6 +70,26 @@ type ErrorDescriptor struct {
 	Message      string `json:"message,omitempty"`
 	Location     string `json:"location,omitempty"`
 	LocationType string `json:"location,omitempty"`
+}
+
+type JsonDateTime time.Time
+
+func (dt *JsonDateTime) MarshalJSON() ([]byte, error) {
+	t := time.Time(*dt)
+	// convert to JSON string type
+	return []byte(`"` + t.Format(DatetimeFormat) + `"`), nil
+}
+
+func (dt *JsonDateTime) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		return nil
+	}
+	t, err := time.Parse(DatetimeFormat, string(b[1:len(b)-1]))
+	if err != nil {
+		return err
+	}
+	*dt = JsonDateTime(t)
+	return nil
 }
 
 func (o *Optional[T]) UnmarshalJSON(data []byte) error {

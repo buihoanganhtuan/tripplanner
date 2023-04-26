@@ -250,8 +250,8 @@ interface Trip {
 
     userId?: string;
     name?: string;
-    dateExpected: Datetime;
-    dateCreated: Datetime;
+    dateCreated?: Datetime;
+    dateExpected?: Datetime;    
     lastModified: Datetime;
     budgetLimit: Cost;
     preferredTransportMode: 'train' | 'bus' | 'walk';

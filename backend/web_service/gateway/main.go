@@ -34,17 +34,16 @@ func main() {
 }
 
 // ErrorHandler return a pointer to ErrorResponse to help distinguish null from zero value
-type ErrorHandler func(http.ResponseWriter, *http.Request) (error, cst.ErrorResponse)
-type Middleware func(ErrorHandler) http.HandlerFunc
+type Middleware func(cst.ErrorHandler) http.HandlerFunc
 type AclClaim struct {
 	jwt.StandardClaims
-	user        string
-	roles       []string
-	permissions [][]string
+	User        string   `json:"user"`
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"perms"`
 }
 
 func newValidatorMiddleware(conf map[string]interface{}) Middleware {
-	return func(h ErrorHandler) http.HandlerFunc {
+	return func(h cst.ErrorHandler) http.HandlerFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// validate resource id (if any)
 			varMap := mux.Vars(r)
@@ -86,7 +85,7 @@ func newValidatorMiddleware(conf map[string]interface{}) Middleware {
 					return
 				}
 
-				token, err := jwt.ParseWithClaims(authHead, AclClaim{}, func(token *jwt.Token) (interface{}, error) {
+				token, err := jwt.ParseWithClaims(authHead, &AclClaim{}, func(token *jwt.Token) (interface{}, error) {
 					return cst.Pk, nil
 				}, jwt.WithValidMethods([]string{"RSA"}))
 
@@ -112,21 +111,30 @@ func newValidatorMiddleware(conf map[string]interface{}) Middleware {
 				}
 
 				// check permission
-				method := strings.ToLower(r.Method)
-				if method == "POST" && strings.ContainsRune(method, ':') {
-					tmp := strings.Split(method, ":")
-					method = strings.ToLower(tmp[len(tmp)-1])
+				if len(claims.Permissions) == 0 {
+					SimpleUnauthorizeResponse(w, fmt.Sprintf(unauthorizedInvalidClaimMsg, "perms"))
 				}
 
-				resource := r.URL.Path
-				claims.
+				method := strings.ToLower(r.Method)
+				if method == "post" && strings.ContainsRune(method, ':') {
+					method = strings.ToLower(peekBack(strings.Split(method, ":")))
+				}
+				ok = false
+				for _, p := range claims.Permissions {
+					p = strings.ToLower(p)
+					rm := strings.Split(p, ":")
+					ok = ok || len(rm) == 2 && rm[1] == method && matchResource(r.URL.Path, rm[0])
+				}
+				if !ok {
+					SimpleUnauthorizeResponse(w, unauthorizedMsg)
+				}
 			}
 
 			// call the inner handler
 			e, er := h(w, r)
 			if e != nil {
 				fmt.Errorf("%v", e)
-				resp, err := json.Marshal(er)
+				resp, err := json.Marshal(*er)
 				if err != nil {
 					panic(err)
 				}
@@ -134,6 +142,22 @@ func newValidatorMiddleware(conf map[string]interface{}) Middleware {
 			}
 		})
 	}
+}
+
+func matchResource(path, resource string) bool {
+	// TODO: implement a custom JSON-valued claim to implement authorization
+	// We have a set of (resource, method) pairs. Each security role refers to
+	// a specific set of those pairs and indicates that the role can perform
+	// those specific methods on those specific resources. An identity can assume
+	// one or multiple roles, depending on our policy
+	path = strings.ToLower(path)
+	resource = strings.ToLower(resource)
+
+	// matching
+	if resource[len(resource)-1] == '*' {
+		return strings.HasPrefix(path, resource)
+	}
+	return path == resource
 }
 
 func SimpleUnauthorizeResponse(w http.ResponseWriter, msg string) {
@@ -145,4 +169,12 @@ func SimpleUnauthorizeResponse(w http.ResponseWriter, msg string) {
 		panic(err)
 	}
 	http.Error(w, string(resp), http.StatusUnauthorized)
+}
+
+func peekBack[T any](arr []T) T {
+	var ret T
+	if len(arr) > 0 {
+		ret = arr[len(arr)-1]
+	}
+	return ret
 }

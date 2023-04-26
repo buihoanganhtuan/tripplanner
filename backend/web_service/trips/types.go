@@ -1,6 +1,8 @@
 package trips
 
-import "net/http"
+import (
+	constants "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
+)
 
 /*
 ***********************************************************
@@ -10,16 +12,16 @@ import "net/http"
 ***********************************************************
 */
 type Trip struct {
-	Id            string   `json:"id"`
-	Type          string   `json:"type"`
-	UserId        string   `json:"userId,omitempty"`
-	Name          string   `json:"name,omitempty"`
-	DateExpected  Datetime `json:"dateExpected"`
-	DateCreated   Datetime `json:"dateCreated"`
-	LastModified  Datetime `json:"lastModified"`
-	Budget        Cost     `json:"budgetLimit"`
-	PreferredMode string   `json:"preferredTransportMode"`
-	PlanResult    []Edge   `json:"planResult"`
+	Id            string                  `json:"id"`
+	Type          string                  `json:"type"`
+	UserId        string                  `json:"userId,omitempty"`
+	Name          string                  `json:"name,omitempty"`
+	DateExpected  *constants.JsonDateTime `json:"dateExpected,omitempty"`
+	DateCreated   *constants.JsonDateTime `json:"dateCreated,omitempty"`
+	LastModified  constants.JsonDateTime  `json:"lastModified,omitempty"`
+	Budget        Cost                    `json:"budgetLimit"`
+	PreferredMode string                  `json:"preferredTransportMode"`
+	PlanResult    []Edge                  `json:"planResult"`
 }
 
 /************************************************************
@@ -43,13 +45,13 @@ type Datetime struct {
 }
 
 type Edge struct {
-	PointId     string   `json:"pointId"`
-	NextPointId string   `json:"nextPointId"`
-	Start       Datetime `json:"start"`
-	Duration    Duration `json:"duration"`
-	Cost        Cost     `json:"Cost"`
-	Transport   string   `json:"transportMode"`
-	GeoPointId  []string `json:"geoPointId"`
+	PointId     PointId                `json:"pointId"`
+	NextPointId PointId                `json:"nextPointId"`
+	Start       constants.JsonDateTime `json:"start"`
+	Duration    Duration               `json:"duration"`
+	Cost        Cost                   `json:"Cost"`
+	Transport   string                 `json:"transportMode"`
+	GeoPointId  []GeoPointId           `json:"geoPointId"`
 }
 
 type Duration struct {
@@ -62,6 +64,9 @@ type Cost struct {
 	Unit   string `json:"unit"`
 }
 
+type PointId string
+type GeoPointId string
+
 /*
 ***********************************************************
 
@@ -70,22 +75,7 @@ type Cost struct {
 ***********************************************************
 */
 
-type Middleware http.Handler
-type MiddlewareGenerator func(http.Handler) Middleware
-type MiddlewareGeneratorConfigurator func(conf map[string]interface{}) MiddlewareGenerator
-type JwtMiddlewareGeneneratorConfigurator MiddlewareGeneratorConfigurator
-
-type Status int
-
-type StatusError struct {
-	Status        Status
-	Err           error
-	HttpStatus    int
-	ClientMessage string
-}
-
 type GraphError []string
-
 type CycleError []GraphError
 type MultiFirstError GraphError
 type MultiLastError GraphError
@@ -98,10 +88,11 @@ type PlanResults []PlanResult
 type Cycle []int
 type Cycles []Cycle
 
+type NodeId string
 type Node struct {
-	Id     string
-	Before []string
-	After  []string
+	Id     NodeId
+	Before []NodeId
+	After  []NodeId
 	First  bool
 	Last   bool
 }
