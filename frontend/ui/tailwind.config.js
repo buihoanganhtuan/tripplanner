@@ -8,8 +8,8 @@ export default {
   theme: {
     extend: {
       gridTemplateRows: {
-        'landing': '75px 2fr 10fr',
-        'login-pane': '10px 10fr 3fr',
+        'landing': '75px 0.2fr 1fr',
+        'login-pane': '1fr 10fr 3fr',
         'login-input': '0.5fr 1fr 0.5fr 1fr 10px'
       },
     },
