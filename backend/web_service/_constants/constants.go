@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -22,23 +23,30 @@ var Pk *rsa.PublicKey
 var Ev utils.EnvironmentVariableMap
 
 const (
-	DatetimeFormat      = "2006-01-02 15:04:05 -0700"
-	SqlHostVar          = "PQ_HOST"
-	SqlPortVar          = "PQ_PORT"
-	SqlUsernameVar      = "PQ_USERNAME"
-	SqlPasswordVar      = "PQ_PASSWORD"
-	SqlWebDbNameVar     = "PQ_WEB_DBNAME"
-	SqlUserTableVar     = "PQ_USER_TABLE"
-	SqlTripTableVar     = "PQ_TRIP_TABLE"
-	SqlAnonTripTableVar = "PQ_ANON_TRIP_TABLE"
-	SqlEdgeTableVar     = "PQ_EDGE_TABLE"
-	KvsHostVar          = "REDIS_HOST"
-	KvsPortVar          = "REDIS_PORT"
-	KvsPasswordVar      = "REDIS_PASSWORD"
-	KvsDelHKeyVar       = "REDIS_DELETE_TRANS_KEY"
-	PublicKeyPathVar    = "PUBLIC_KEY_PATH"
-	AuthServiceName     = "Tripplanner:AuthService"
-	WebServiceName      = "Tripplanner:WebService"
+	DatetimeFormat              = "2006-01-02 15:04:05 -0700"
+	SqlHostVar                  = "PQ_HOST"
+	SqlPortVar                  = "PQ_PORT"
+	SqlUsernameVar              = "PQ_USERNAME"
+	SqlPasswordVar              = "PQ_PASSWORD"
+	SqlWebDbNameVar             = "PQ_WEB_DBNAME"
+	SqlUserTableVar             = "PQ_USER_TABLE"
+	SqlTripTableVar             = "PQ_TRIP_TABLE"
+	SqlPointTableVar            = "PQ_POINT_TABLE"
+	SqlPointAssociationTableVar = "PQ_POINT_ASSOC_TABLE"
+	SqlAnonTripTableVar         = "PQ_ANON_TRIP_TABLE"
+	SqlEdgeTableVar             = "PQ_EDGE_TABLE"
+	SqlGeoPointTableVar         = "PQ_GEOPOINT_TABLE"
+	SqlWayTableVar              = "PQ_WAY_TABLE"
+	KvsHostVar                  = "REDIS_HOST"
+	KvsPortVar                  = "REDIS_PORT"
+	KvsPasswordVar              = "REDIS_PASSWORD"
+	KvsDelHKeyVar               = "REDIS_DELETE_TRANS_KEY"
+	PublicKeyPathVar            = "PUBLIC_KEY_PATH"
+	AuthServiceName             = "Tripplanner:AuthService"
+	WebServiceName              = "Tripplanner:WebService"
+	GeohashLen                  = 41
+	RouteSearchRadius           = 2000.
+	MaxCandidateTrips           = 10
 )
 
 // Tagging to assist JSON Marshalling (converting a structured data into a JSON string)
@@ -51,7 +59,7 @@ type Optional[T any] struct {
 }
 
 // Conventions followed: https://google.github.io/styleguide/jsoncstyleguide.xml#Reserved_Property_Names_in_the_error_object
-type ErrorHandler func(http.ResponseWriter, *http.Request) (error, *ErrorResponse)
+type ErrorHandler func(http.ResponseWriter, *http.Request) (error, ErrorResponse)
 
 type AppError struct {
 	Err  error
@@ -74,6 +82,11 @@ type ErrorDescriptor struct {
 
 type JsonDateTime time.Time
 
+type JsonDuration struct {
+	Duration int
+	Unit     string
+}
+
 func (dt *JsonDateTime) MarshalJSON() ([]byte, error) {
 	t := time.Time(*dt)
 	// convert to JSON string type
@@ -89,6 +102,44 @@ func (dt *JsonDateTime) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	*dt = JsonDateTime(t)
+	return nil
+}
+
+func (d *JsonDuration) MarshalJSON() ([]byte, error) {
+	if d.Duration >= 100000 {
+		return nil, errors.New("duration must be <= 100000")
+	}
+	if d.Unit != "sec" && d.Unit != "min" && d.Unit != "hour" {
+		return nil, errors.New("invalid duration unit " + d.Unit)
+	}
+	return []byte(strconv.Itoa(d.Duration) + " " + d.Unit), nil
+}
+
+func (d *JsonDuration) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		return nil
+	}
+	var dur int
+	var unit string
+	for i, c := range b {
+		if c >= '0' && c <= '9' {
+			dur = dur*10 + int(c)
+			if dur >= 100000 {
+				return errors.New("duration must be <= 100000")
+			}
+		}
+		if c >= 'a' && c <= 'z' {
+			unit = string(b[i:])
+			break
+		}
+	}
+	if unit != "sec" && unit != "min" && unit != "hour" {
+		return errors.New("invalid duration unit " + unit)
+	}
+	*d = JsonDuration{
+		Duration: dur,
+		Unit:     unit,
+	}
 	return nil
 }
 

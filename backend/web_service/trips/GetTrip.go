@@ -13,7 +13,7 @@ import (
 
 func NewGetTripHandler(anonymous bool) cst.ErrorHandler {
 	var eh cst.ErrorHandler
-	eh = cst.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, *cst.ErrorResponse) {
+	eh = cst.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, cst.ErrorResponse) {
 		id := mux.Vars(r)["id"]
 
 		ctx := context.Background()

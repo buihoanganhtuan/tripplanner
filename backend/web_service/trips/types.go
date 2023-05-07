@@ -1,6 +1,9 @@
 package trips
 
 import (
+	"strconv"
+	"strings"
+
 	constants "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
 )
 
@@ -64,8 +67,37 @@ type Cost struct {
 	Unit   string `json:"unit"`
 }
 
-type PointId string
-type GeoPointId string
+type Point struct {
+	Id         PointId
+	GeoPointId GeoPointId
+	Name       string
+	Lat        float64
+	Lon        float64
+	Next       []Point
+	First      bool
+	Last       bool
+}
+
+type GeoPoint struct {
+	Id     GeoPointId `json:"geoPointId"`
+	HashId GeoHashId  `json:"-"`
+	Routes []RouteId  `json:"-"`
+	Lat    float64    `json:"latitude"`
+	Lon    float64    `json:"longitude"`
+	Tags   Tags       `json:"tags,omitempty"`
+}
+
+type ArrivalConstraint struct {
+	from constants.JsonDateTime `json:"from"`
+	to   constants.JsonDateTime `json:"to"`
+}
+
+type DurationConstraint struct {
+}
+
+type PointId int64
+type GeoPointId int64
+type Tags map[string]string
 
 /*
 ***********************************************************
@@ -75,24 +107,63 @@ type GeoPointId string
 ***********************************************************
 */
 
-type GraphError []string
+type GraphError []PointId
 type CycleError []GraphError
 type MultiFirstError GraphError
 type MultiLastError GraphError
 type SimulFirstAndLastError GraphError
 type UnknownNodeIdError GraphError
 
-type PlanResult []string
-type PlanResults []PlanResult
+type PointOrder []PointId
 
 type Cycle []int
 type Cycles []Cycle
 
-type NodeId string
-type Node struct {
-	Id     NodeId
-	Before []NodeId
-	After  []NodeId
-	First  bool
-	Last   bool
+type RouteId int64
+type GeoHashId int64
+
+/*
+***********************************************************
+
+	Methods
+
+***********************************************************
+*/
+
+func (ge GraphError) Error() string {
+	var pids []string
+	for _, pid := range ge {
+		pids = append(pids, string(pid))
+	}
+	return strings.Join(pids, ",")
+}
+
+func (mf MultiFirstError) Error() string {
+	return GraphError(mf).Error()
+}
+
+func (ml MultiLastError) Error() string {
+	return GraphError(ml).Error()
+}
+
+func (un UnknownNodeIdError) Error() string {
+	return GraphError(un).Error()
+}
+
+func (ce CycleError) Error() string {
+	ges := []GraphError(ce)
+	var sb strings.Builder
+	for _, ge := range ges {
+		sb.WriteString(ge.Error())
+		sb.WriteString("\\n")
+	}
+	return sb.String()
+}
+
+func (sm SimulFirstAndLastError) Error() string {
+	return GraphError(sm).Error()
+}
+
+func (gpid GeoPointId) Stringer() string {
+	return strconv.FormatInt(int64(gpid), 10)
 }
