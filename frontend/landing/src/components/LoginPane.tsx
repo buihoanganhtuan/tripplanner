@@ -25,7 +25,7 @@ export function LoginPane() {
     }
 
     function onClickLogin(e: React.ChangeEvent<HTMLButtonElement>) {
-
+        
     }
 
     return (
@@ -42,7 +42,7 @@ export function LoginPane() {
                     </div>
                     <input type="text" required name="id" onKeyDown={onChange} className={"row-start-2 h-8 " + validityColors.get(valid)}/>
                     <label htmlFor="row-start-3 pe-3 password" className="">Password</label>
-                    <input type="text" required name="password"  className="row-start-4 h-8"></input>
+                    <input type="password" required name="password"  className="row-start-4 h-8"></input>
                     <div className="row-start-5 justify-self-end">Forgot password</div>
             </div>
             <div className="row-start-3 grid grid-cols-2 justify-evenly self-start">

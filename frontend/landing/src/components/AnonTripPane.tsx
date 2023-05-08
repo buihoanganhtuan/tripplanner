@@ -16,14 +16,18 @@ export function AnonTripPane() {
         
         console.log(hostname + "/trips/" + tid)
         e.preventDefault()
-        // try {
-        //     let resp = await fetch(hostname + "/trips/" + tid, ri)
-        //     if (resp.status < 200 || resp.status >= 300) {
-                
-        //     }
-        // } catch (error) {
-        //     console.log(error)
-        // }
+        let f = async function() {
+            try {
+                let resp = await fetch("http://" + hostname + "/trips/" + tid, ri)
+                if (resp.status < 200 || resp.status >= 300) {
+                    
+                }
+            } catch (error) {
+                console.log(error)
+            }
+        }
+        f()
+
     }
 
     return (
