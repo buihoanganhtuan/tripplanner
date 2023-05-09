@@ -7,6 +7,9 @@ export default {
   ],
   theme: {
     extend: {
+      gridTemplateRows: {
+        'drop-down': '40px 1fr'
+      }
     },
   },
   plugins: [],

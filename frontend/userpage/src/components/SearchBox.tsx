@@ -20,18 +20,11 @@ export function SearchBox(props: SearchBoxProps) {
         // Consult autocomplete endpoint
     }
     const handleFocus = () => setState(prev => { return { ...prev, focused: true } })
-    const handleUnfocus = () => setState(prev => { 
-        console.log("Unfocused")
-        return { ...prev, focused: false } 
-    })
-    // const handleUnfocus = () => {
-    //     console.log("Unfocused")
-    //     setState({ ...state, focused: false })
-    // }
+    const handleUnfocus = () => setState(prev => { return { ...prev, focused: false } })
 
-    let inputComp = <input value={state.inputText} onChange={handleInput} onFocus={handleFocus} onBlur={handleUnfocus}/>
+
+    let inputComp = <input value={state.inputText} onChange={handleInput} onFocus={handleFocus} onBlur={handleUnfocus} className={props.className}/>
     
-
     if (state.focused)
         return (
             <div>
