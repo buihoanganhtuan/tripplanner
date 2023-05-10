@@ -44,7 +44,6 @@ export function PlanningPane() {
         }
         setState(prev => {
             prev.stagingPoints.push(g)
-            prev.stagingPoints.sort((p1, p2) => p1.name > p2.name ? 1 : -1)
             return { ...prev }
         })
     }
@@ -64,10 +63,10 @@ export function PlanningPane() {
     }
 
     return (
-        <div className="grid grid-row-4 justify-items-center gap-y-4">
-            <SearchBox input="" selectedEntry={state.autocompletedPoint} onEntrySelection={handleAutocompletion} className="min-w-[50%] border-2 rounded-md"/>
-            <StagingBox points={state.stagingPoints} onPointDelete={handlePointDeletion} selectedPoint={state.selectedStagingPoint} onPointSelect={handleStagingPointSelection}/>
-            <MapBox selectedPoint={state.selectedStagingPoint}/>
+        <div className="grid grid-row-3 justify-items-center items-center gap-y-4">
+            <SearchBox input="" selectedEntry={state.autocompletedPoint} onEntrySelection={handleAutocompletion} className="row-start-1"/>
+            <StagingBox points={state.stagingPoints} onPointDelete={handlePointDeletion} selectedPoint={state.selectedStagingPoint} onPointSelect={handleStagingPointSelection} className="row-start-2"/>
+            <MapBox selectedPoint={state.selectedStagingPoint} stagingPoints={state.stagingPoints} onPointSelection={handleStagingPointSelection} className="row-start-3"/>
         </div>
     )
 }

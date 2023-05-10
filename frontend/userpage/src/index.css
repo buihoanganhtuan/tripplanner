@@ -1,3 +1,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* overflow-y: scroll fixes jumping element when scroll bar appears */
+body { 
+    overflow-y: scroll;
+    background-color: aliceblue;
+}

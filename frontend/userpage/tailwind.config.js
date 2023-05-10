@@ -9,6 +9,9 @@ export default {
     extend: {
       gridTemplateRows: {
         'drop-down': '40px 1fr'
+      },
+      maxHeight: {
+        'inherit': 'inherit'
       }
     },
   },
