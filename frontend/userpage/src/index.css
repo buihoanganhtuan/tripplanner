@@ -7,3 +7,7 @@ body {
     overflow-y: scroll;
     background-color: aliceblue;
 }
+
+* {
+    box-sizing: border-box;
+}
