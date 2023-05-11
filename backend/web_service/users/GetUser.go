@@ -4,9 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
@@ -14,73 +12,37 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func GetUser(w http.ResponseWriter, rq *http.Request) error {
+func GetUser(w http.ResponseWriter, rq *http.Request) (error, utils.ErrorResponse) {
 	id := mux.Vars(rq)["id"]
 
-	if !utils.VerifyBase32String(id, IdLengthChar) {
-		return StatusError{
-			Status:        InvalidId,
-			HttpStatus:    http.StatusBadRequest,
-			ClientMessage: InvalidIdMessage,
-		}
-	}
-
-	var uid, name, _joinDate string
+	var uid, name, joindateStr string
 	err := cst.Db.QueryRow("select id, name, join_date from ? where id = ?", cst.Ev.Var(cst.SqlUserTableVar), id).
-		Scan(&uid, &name, &_joinDate)
+		Scan(&uid, &name, &joindateStr)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return StatusError{
-				Status:        NoSuchUser,
-				HttpStatus:    http.StatusBadRequest,
-				ClientMessage: NoSuchUserMessage,
-			}
+			return err, utils.NewInvalidIdError()
 		}
-		return StatusError{
-			Status:        DatabaseQueryError,
-			Err:           err,
-			HttpStatus:    http.StatusInternalServerError,
-			ClientMessage: DatabaseQueryErrorMessage,
-		}
+		return err, utils.NewDatabaseQueryError()
 	}
 
-	joinDate, err := time.Parse(cst.DatetimeFormat, _joinDate)
+	joinDate, err := time.Parse(cst.DatetimeFormat, joindateStr)
 
 	if err != nil {
-		return StatusError{
-			Status:        ParseError,
-			Err:           err,
-			HttpStatus:    http.StatusInternalServerError,
-			ClientMessage: fmt.Sprintf(ParseErrorMessage, "joinDate"),
-		}
+		return err, utils.NewServerParseError()
 	}
 
-	_, offset := joinDate.Zone()
-
 	resource, err := json.Marshal(UserResponse{
-		Id:   uid,
-		Name: name,
-		JoinDate: DateTime{
-			Year:   strconv.Itoa(joinDate.Year()),
-			Month:  strconv.Itoa(int(joinDate.Month())),
-			Day:    strconv.Itoa(joinDate.Day()),
-			Hour:   strconv.Itoa(joinDate.Hour()),
-			Min:    strconv.Itoa(joinDate.Minute()),
-			Offset: strconv.Itoa(offset),
-		},
+		Id:       uid,
+		Name:     name,
+		JoinDate: utils.JsonDateTime(joinDate),
 	})
 
 	if err != nil {
-		return StatusError{
-			Status:        MarshallingError,
-			Err:           err,
-			HttpStatus:    http.StatusInternalServerError,
-			ClientMessage: MarshallingErrorMessage,
-		}
+		return err, utils.NewMarshalError()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(resource)
 
-	return nil
+	return nil, utils.ErrorResponse{}
 }

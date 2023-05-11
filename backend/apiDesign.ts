@@ -274,7 +274,9 @@ interface GeoPoint {
 
     lat: string;
     lon: string;
-    tags: KeyValuePair[];
+    name?: string;
+    address?: string;
+    tags?: KeyValuePair[];
 }
 
 // Polymorphic resource
@@ -294,13 +296,12 @@ interface OperationError {
 
 // Data types
 interface PointArrivalConstraint {
-    from: Datetime;
-    to: Datetime;
+    before: Datetime;
 }
 
 interface PointDurationConstraint {
     duration: number;
-    unit: 'h' | 'm';
+    unit: 'hour' | 'min' | 'sec';
 }
 
 interface PointAfterConstraint {

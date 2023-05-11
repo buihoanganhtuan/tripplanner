@@ -8,4 +8,5 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/redis/go-redis/v9 v9.0.3 // indirect
+	modernc.org/b/v2 v2.1.0 // indirect
 )

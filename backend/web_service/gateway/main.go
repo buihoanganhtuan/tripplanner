@@ -10,7 +10,7 @@ import (
 	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
 	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/users"
-	"github.com/golang-jwt/jwt/v4"
+	jwt "github.com/golang-jwt/jwt/v4"
 	mux "github.com/gorilla/mux"
 )
 
@@ -24,17 +24,17 @@ const (
 func main() {
 	r := mux.NewRouter()
 
-	r.HandleFunc("/users", users.ErrorHandler(users.CreateUser)).Methods("POST")
-	r.HandleFunc("/{resource.id=users/.+}/", users.ErrorHandler(users.UpdateUser)).Methods("PATCH")
-	r.HandleFunc("/{resource.id=users/.+}/", users.ErrorHandler(users.ReplaceUser)).Methods("PUT")
-	r.HandleFunc("/{id=users/.*}/", users.ErrorHandler(users.GetUser)).Methods("GET")
-	r.HandleFunc("/users{query=\\?.+}", users.ErrorHandler(users.ListUsers)).Methods("GET")
-	r.HandleFunc("/{id=users/.+}/", users.ErrorHandler(users.DeleteUser)).Methods("DELETE")
+	r.HandleFunc("/users", newValidatorMiddleware(nil)(users.CreateUser)).Methods("POST")
+	r.HandleFunc("/{resource.id=users/.+}/", newValidatorMiddleware(nil)(users.UpdateUser)).Methods("PATCH")
+	r.HandleFunc("/{resource.id=users/.+}/", newValidatorMiddleware(nil)(users.ReplaceUser)).Methods("PUT")
+	r.HandleFunc("/{id=users/.*}/", newValidatorMiddleware(nil)(users.GetUser)).Methods("GET")
+	r.HandleFunc("/users{query=\\?.+}", newValidatorMiddleware(nil)(users.ListUsers)).Methods("GET")
+	r.HandleFunc("/{id=users/.+}/", newValidatorMiddleware(nil)(users.DeleteUser)).Methods("DELETE")
 
 }
 
 // ErrorHandler return a pointer to ErrorResponse to help distinguish null from zero value
-type Middleware func(cst.ErrorHandler) http.HandlerFunc
+type Middleware func(utils.ErrorHandler) http.HandlerFunc
 type AclClaim struct {
 	jwt.StandardClaims
 	User        string   `json:"user"`
@@ -43,7 +43,7 @@ type AclClaim struct {
 }
 
 func newValidatorMiddleware(conf map[string]interface{}) Middleware {
-	return func(h cst.ErrorHandler) http.HandlerFunc {
+	return func(h utils.ErrorHandler) http.HandlerFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// validate resource id (if any)
 			varMap := mux.Vars(r)
@@ -58,7 +58,7 @@ func newValidatorMiddleware(conf map[string]interface{}) Middleware {
 						continue
 					}
 
-					er := cst.ErrorResponse{
+					er := utils.ErrorResponse{
 						Code:    http.StatusBadRequest,
 						Message: fmt.Sprintf("invalid %s id %s", tokens[i-1][:len(tokens[i-1])-1], tokens[i]),
 					}
@@ -133,8 +133,8 @@ func newValidatorMiddleware(conf map[string]interface{}) Middleware {
 			// call the inner handler
 			e, er := h(w, r)
 			if e != nil {
-				fmt.Errorf("%v", e)
-				resp, err := json.Marshal(*er)
+				fmt.Printf("%v", e)
+				resp, err := json.Marshal(er)
 				if err != nil {
 					panic(err)
 				}
@@ -161,7 +161,7 @@ func matchResource(path, resource string) bool {
 }
 
 func SimpleUnauthorizeResponse(w http.ResponseWriter, msg string) {
-	resp, err := json.Marshal(cst.ErrorResponse{
+	resp, err := json.Marshal(utils.ErrorResponse{
 		Code:    http.StatusUnauthorized,
 		Message: msg,
 	})

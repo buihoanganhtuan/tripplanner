@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,43 +16,43 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func newPlanTripHandler(anonymous bool) cst.ErrorHandler {
-	return cst.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, cst.ErrorResponse) {
+func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
+	return utils.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, utils.ErrorResponse) {
 		tripId, present := mux.Vars(r)["id"]
 		if !present {
-			return nil, newInvalidIdError()
+			return nil, utils.NewInvalidIdError()
 		}
 
 		var expectDateStr, budgetStr, budgetUnitStr, transportStr string
 		var err error
 		row := cst.Db.QueryRow("select ExpectedDate, BudgetLimit, BudgetUnit, PreferredTransportMode from ? where TripId = ?", cst.Ev.Var(cst.SqlTripTableVar), tripId)
 		if err = row.Scan(&expectDateStr, &budgetStr, &budgetUnitStr, &transportStr); err == sql.ErrNoRows {
-			return err, newInvalidIdError()
+			return err, utils.NewInvalidIdError()
 		}
 
 		var expectDate time.Time
 		expectDate, err = time.Parse(cst.DatetimeFormat, expectDateStr)
 		if err != nil {
-			return err, newServerParseError()
+			return err, utils.NewServerParseError()
 		}
 
 		var budget int
 		budget, err = strconv.Atoi(budgetStr)
 		if err != nil {
-			return err, newServerParseError()
+			return err, utils.NewServerParseError()
 		}
 
 		allowedUnits := utils.NewSet[string]("JPY", "USD")
-		allowedTrans := utils.NewSet[string]("train", "bus", "walk")
-		if !allowedUnits.Contains(budgetUnitStr) || allowedTrans.Contains(transportStr) {
-			return errors.New(""), newServerParseError()
+		allowedModes := utils.NewSet[string]("train", "bus", "walk")
+		if !allowedUnits.Contains(budgetUnitStr) || allowedModes.Contains(transportStr) {
+			return errors.New(""), utils.NewServerParseError()
 		}
 
 		// Get the points in the trip
 		var rows *sql.Rows
 		rows, err = cst.Db.Query("select Id, GeoPointId, Name, Lat, Lon from ? where TripId = ?", cst.Ev.Var(cst.SqlPointTableVar), tripId)
 		if err != nil {
-			return err, newDatabaseQueryError()
+			return err, utils.NewDatabaseQueryError()
 		}
 
 		points := map[PointId]Point{}
@@ -62,7 +63,7 @@ func newPlanTripHandler(anonymous bool) cst.ErrorHandler {
 			var lat, lon float64
 			err = rows.Scan(&pid, &gpid, &name, &lat, &lon)
 			if err != nil {
-				return err, newUnknownError()
+				return err, utils.NewUnknownError()
 			}
 			points[pid] = Point{
 				Id:         pid,
@@ -74,13 +75,13 @@ func newPlanTripHandler(anonymous bool) cst.ErrorHandler {
 		}
 
 		if rows.Err() != nil {
-			return rows.Err(), newDatabaseQueryError()
+			return rows.Err(), utils.NewDatabaseQueryError()
 		}
 
 		// Get the point constraints and construct edges
 		rows, err = cst.Db.Query("select FirstPointId, SecondPointId, ConstraintType from ? where FirstPointId in ("+strings.Join(pids.Values(), ",")+")", cst.PointConstraintTable)
 		if err != nil {
-			return err, newDatabaseQueryError()
+			return err, utils.NewDatabaseQueryError()
 		}
 
 		for rows.Next() {
@@ -89,52 +90,56 @@ func newPlanTripHandler(anonymous bool) cst.ErrorHandler {
 			rows.Scan(&pid1, &pid2, &t)
 			p1, ok := points[pid1]
 			if !ok {
-				return fmt.Errorf("unknown point id %s", pid1), newServerParseError()
+				return fmt.Errorf("unknown point id %s", pid1), utils.NewServerParseError()
 			}
 			p2, ok := points[pid2]
 			if !ok {
-				return fmt.Errorf("unknown point id %s", pid1), newServerParseError()
+				return fmt.Errorf("unknown point id %s", pid1), utils.NewServerParseError()
 			}
 			switch t {
 			case "before":
-				p1.Next = append(p1.Next, p2)
+				p1.Next = append(p1.Next, pid2)
 			case "after":
-				p2.Next = append(p2.Next, p1)
+				p2.Next = append(p2.Next, pid1)
 			case "first":
 				p1.First = true
 			case "last":
 				p1.Last = true
 			default:
-				return fmt.Errorf("unknown constraint type %s", t), newServerParseError()
+				return fmt.Errorf("unknown constraint type %s", t), utils.NewServerParseError()
 			}
 		}
 
 		// Get the candidate orders based on constraints
 		var candTrips []PointOrder
-		candTrips, err = topologicalSort(utils.GetMapValues[PointId, Point](points), cst.MaxCandidateTrips)
+		maxTrips := cst.MaxCandidateTrips
+		if anonymous {
+			maxTrips = cst.MaxCandidateAnonTrips
+		}
+		candTrips, err = topologicalSort(utils.GetMapValues[PointId, Point](points), maxTrips)
 
 		if err != nil {
 			switch err := err.(type) {
 			case CycleError:
-				var errs []cst.ErrorDescriptor
+				var errs []utils.ErrorDescriptor
 				for _, ge := range []GraphError(err) {
 					var cycle []string
 					for _, pid := range []PointId(ge) {
 						cycle = append(cycle, points[pid].Name)
 					}
-					errs = append(errs, cst.ErrorDescriptor{
+					errs = append(errs, utils.ErrorDescriptor{
 						Domain:  cst.WebServiceName,
 						Reason:  "Cycle found in graph",
 						Message: strings.Join(cycle, ","),
 					})
 				}
-				return err, cst.ErrorResponse{
+				return err, utils.ErrorResponse{
 					Code:    http.StatusInternalServerError,
 					Message: "Nodes form cycle(s)",
 					Errors:  errs,
 				}
 			case MultiFirstError, MultiLastError, SimulFirstAndLastError, UnknownNodeIdError:
-				return err, cst.ErrorResponse{
+				return err, utils.ErrorResponse{
 					Code: http.StatusInternalServerError,
 					// TODO
 				}
@@ -147,9 +152,9 @@ func newPlanTripHandler(anonymous bool) cst.ErrorHandler {
 		var nearbyRoutePoints map[PointId][]GeoPoint
 		for _, p := range utils.GetMapValues[PointId, Point](points) {
 			var nps []GeoPoint
-			nps, err = GetNearbyRoutePoints(p, cst.RouteSearchRadius)
+			nps, err = getNearbyRoutePoints(p, cst.RouteSearchRadius)
 			if err != nil {
-				return err, newUnknownError()
+				return err, utils.NewUnknownError()
 			}
 			nearbyRoutePoints[p.Id] = nps
 		}
@@ -164,13 +169,26 @@ func newPlanTripHandler(anonymous bool) cst.ErrorHandler {
 
 			}
 		}
+
+		return nil, utils.ErrorResponse{}
 	})
 }
 
-func topologicalSort(points []Point, lim int) ([]PointOrder, error) {
-
+/*
+Extract possible solutions to a certain DAG ordering. As the number of solutions can be
+quite large, we terminate the search when the number of results found thus far exceed lim
+*/
+func topologicalSort(points []Point, startTime time.Time, lim int) ([]PointOrder, error) {
 	intIds := map[PointId]int{}
 	pointIds := map[int]PointId{}
+
+	mapback := func(intIds []int) []PointId {
+		var ids []PointId
+		for _, id := range intIds {
+			ids = append(ids, pointIds[id])
+		}
+		return ids
+	}
 
 	// convert pointId (string) to integer id
 	var first, last, both []int
@@ -188,14 +206,6 @@ func topologicalSort(points []Point, lim int) ([]PointOrder, error) {
 		}
 	}
 
-	mapback := func(intIds []int) []PointId {
-		var ids []PointId
-		for _, id := range intIds {
-			ids = append(ids, pointIds[id])
-		}
-		return ids
-	}
-
 	if len(first) > 1 {
 		return nil, MultiFirstError(mapback(first))
 	}
@@ -208,24 +218,27 @@ func topologicalSort(points []Point, lim int) ([]PointOrder, error) {
 		return nil, MultiLastError(mapback(both))
 	}
 
-	// BFS
+	// verify that there's no unknown node
 	var unknown []PointId
-	indeg := make([]int, len(intIds))
-	adj := make([][]int, len(intIds))
-	for pid, p := range points {
-		for _, next := range p.Next {
-			j, ok := intIds[next.Id]
-			if !ok {
-				unknown = append(unknown, next.Id)
-				continue
-			}
-			indeg[j]++
-			adj[intIds[PointId(pid)]] = append(adj[j], intIds[PointId(pid)])
+	for _, p := range points {
+		if _, ok := intIds[p.Id]; ok {
+			continue
 		}
+		unknown = append(unknown, p.Id)
 	}
-
 	if len(unknown) > 0 {
 		return nil, UnknownNodeIdError(unknown)
+	}
+
+	// construct the directed edges, prepare the in-degree count for each node
+	indeg := make([]int, len(intIds))
+	adj := make([][]int, len(intIds))
+	for i, p := range points {
+		for _, next := range p.Next {
+			j := intIds[next]
+			indeg[j]++
+			adj[i] = append(adj[j], i)
+		}
 	}
 
 	// Check for cycle
@@ -238,10 +251,23 @@ func topologicalSort(points []Point, lim int) ([]PointOrder, error) {
 		return nil, CycleError(ce)
 	}
 
-	// O(N^3) because we want to check for more than one route
+	sortFn := func(i, j int) bool {
+		d1 := points[i].Arrival.Defined
+		d2 := points[j].Arrival.Defined
+		if d1 && d2 {
+			t1 := time.Time(points[i].Arrival.Value.before)
+			t2 := time.Time(points[j].Arrival.Value.before)
+			return t1.Before(t2)
+		}
+		if !d1 && !d2 || !d1 && d2 {
+			return false
+		}
+		return true
+	}
+
 	var res []PointOrder
-	var dfs func([]int, []int)
-	dfs = func(q, cur []int) {
+	var dfs func([]int, []int, time.Time)
+	dfs = func(q, cur []int, t time.Time) {
 		if len(res) >= lim {
 			return
 		}
@@ -252,6 +278,12 @@ func topologicalSort(points []Point, lim int) ([]PointOrder, error) {
 
 		var qc []int
 		qc = append(qc, q...)
+		sort.SliceStable(qc, sortFn) // prioritize points with deadline first
+		if points[qc[0]].Arrival.Defined && t.After(time.Time(points[qc[0]].Arrival.Value.before)) {
+			return
+		}
+
+		// backtrack
 		for i := 0; i < len(qc); i++ {
 			tmp := qc[i]
 			cur = append(cur, tmp)
@@ -265,7 +297,13 @@ func topologicalSort(points []Point, lim int) ([]PointOrder, error) {
 					qc = append(qc, j)
 				}
 			}
-			dfs(qc, cur)
+
+			if points[qc[i]].Duration.Defined {
+				dfs(qc, cur, t.Add(points[qc[i]].Duration.Value))
+			} else {
+				dfs(qc, cur, t)
+			}
+
 			for _, j := range adj[tmp] {
 				indeg[j]++
 			}
@@ -282,7 +320,7 @@ func topologicalSort(points []Point, lim int) ([]PointOrder, error) {
 			q = append(q, i)
 		}
 	}
-	dfs(q, cur)
+	dfs(q, cur, startTime)
 
 	return res, nil
 }
@@ -336,7 +374,7 @@ func GetCycles(indeg []int, adj [][]int) Cycles {
 		path = append(path, i)
 		for _, j := range adj[i] {
 			if inStack[j] {
-				// Found c
+				// Found cycle
 				var c []int
 				var add bool
 				for _, node := range path {
@@ -359,8 +397,12 @@ func GetCycles(indeg []int, adj [][]int) Cycles {
 	return res
 }
 
-func GetNearbyRoutePoints(point Point, dist float64) ([]GeoPoint, error) {
-	// Get lat lon of bottom left and top right of a square centered at current position and has side = 2*dist
+/*
+Get latitude and longitude of bottom left and top right of a square
+centered at current position and has side = 2*dist
+*/
+func getNearbyRoutePoints(point Point, dist float64) ([]GeoPoint, error) {
+
 	latBits := cst.GeohashLen / 2
 	lonBits := cst.GeohashLen/2 + cst.GeohashLen%2
 	numLats := int64(1) << int64(latBits)
@@ -427,7 +469,9 @@ func GetNearbyRoutePoints(point Point, dist float64) ([]GeoPoint, error) {
 		}
 	}
 
-	q := fmt.Sprintf("select RouteId, GeoPointId, NodeLat, NodeLon from %s where GeoHashId in (?)", cst.SqlWayTableVar)
+	q := fmt.Sprintf(`select RouteId, GeoPointId, NodeLat, NodeLon 
+						from %s 
+						where GeoHashId in (?)`, cst.SqlWayTableVar)
 	rows, err := cst.Db.Query(q, strings.Join(geoHashes, ","))
 	if err != nil {
 		return nil, err
@@ -467,6 +511,10 @@ func GetNearbyRoutePoints(point Point, dist float64) ([]GeoPoint, error) {
 	}
 
 	return res, nil
+}
+
+func FindShortestPath(src utils.Set[RouteId], dst utils.Set[RouteId], preferMode string, budget int) []RouteId {
+
 }
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {

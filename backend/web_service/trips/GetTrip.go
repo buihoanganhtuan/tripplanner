@@ -8,18 +8,19 @@ import (
 	"time"
 
 	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
+	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
 	"github.com/gorilla/mux"
 )
 
-func NewGetTripHandler(anonymous bool) cst.ErrorHandler {
-	var eh cst.ErrorHandler
-	eh = cst.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, cst.ErrorResponse) {
+func NewGetTripHandler(anonymous bool) utils.ErrorHandler {
+	var eh utils.ErrorHandler
+	eh = utils.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, utils.ErrorResponse) {
 		id := mux.Vars(r)["id"]
 
 		ctx := context.Background()
 		tx, err := cst.Db.BeginTx(ctx, nil)
 		if err != nil {
-			return err, newDatabaseQueryError()
+			return err, utils.NewDatabaseQueryError()
 		}
 
 		var budget int
@@ -36,7 +37,7 @@ func NewGetTripHandler(anonymous bool) cst.ErrorHandler {
 		}
 
 		if err != nil {
-			return err, newDatabaseQueryError()
+			return err, utils.NewDatabaseQueryError()
 		}
 
 		var ed, cd, lastModified time.Time
@@ -45,27 +46,27 @@ func NewGetTripHandler(anonymous bool) cst.ErrorHandler {
 		if !anonymous {
 			ed, err = time.Parse(cst.DatetimeFormat, edStr)
 			if err != nil {
-				return err, newServerParseError()
+				return err, utils.NewServerParseError()
 			}
 			expectedDate = &ed
 
 			cd, err = time.Parse(cst.DatetimeFormat, cdStr)
 			if err != nil {
-				return err, newServerParseError()
+				return err, utils.NewServerParseError()
 			}
 			createdDate = &cd
 		}
 
 		lastModified, err = time.Parse(cst.DatetimeFormat, lmStr)
 		if err != nil {
-			return err, newServerParseError()
+			return err, utils.NewServerParseError()
 		}
 
 		var edges []Edge
 		var rows *sql.Rows
 		rows, err = tx.Query("select PointId, NextPointId, Start, DurationHr, DurationMin, CostAmount, CostUnit, Transport from ? order by ord where tripId = ?", cst.SqlEdgeTableVar, id)
 		if err != nil {
-			return err, newDatabaseQueryError()
+			return err, utils.NewDatabaseQueryError()
 		}
 
 		for rows.Next() {
@@ -73,19 +74,19 @@ func NewGetTripHandler(anonymous bool) cst.ErrorHandler {
 			var durationHr, durationMin, costAmount int
 			err = rows.Scan(&pointId, &nextPointId, &_start, &durationHr, &durationMin, &costAmount, &costUnit, &transport)
 			if err != nil {
-				return err, newDatabaseQueryError()
+				return err, utils.NewDatabaseQueryError()
 			}
 
 			var start time.Time
 			start, err = time.Parse(cst.DatetimeFormat, _start)
 			if err != nil {
-				return err, newServerParseError()
+				return err, utils.NewServerParseError()
 			}
 
 			edges = append(edges, Edge{
 				PointId:     PointId(pointId),
 				NextPointId: PointId(nextPointId),
-				Start:       cst.JsonDateTime(start),
+				Start:       utils.JsonDateTime(start),
 				Duration: Duration{
 					Hour: durationHr,
 					Min:  durationMin,
@@ -100,7 +101,7 @@ func NewGetTripHandler(anonymous bool) cst.ErrorHandler {
 
 		err = rows.Err()
 		if err != nil {
-			return err, newDatabaseQueryError()
+			return err, utils.NewDatabaseQueryError()
 		}
 
 		var body []byte
@@ -113,9 +114,9 @@ func NewGetTripHandler(anonymous bool) cst.ErrorHandler {
 			UserId:       uid,
 			Type:         tp,
 			Name:         name,
-			DateExpected: (*cst.JsonDateTime)(expectedDate),
-			DateCreated:  (*cst.JsonDateTime)(createdDate),
-			LastModified: cst.JsonDateTime(lastModified),
+			DateExpected: (*utils.JsonDateTime)(expectedDate),
+			DateCreated:  (*utils.JsonDateTime)(createdDate),
+			LastModified: utils.JsonDateTime(lastModified),
 			Budget: Cost{
 				Amount: budget,
 				Unit:   budgetUnit,
@@ -125,12 +126,12 @@ func NewGetTripHandler(anonymous bool) cst.ErrorHandler {
 		})
 
 		if err != nil {
-			return err, newUnknownError()
+			return err, utils.NewUnknownError()
 		}
 
 		w.Write(body)
 		w.WriteHeader(http.StatusOK)
-		return nil, nil
+		return nil, utils.ErrorResponse{}
 	})
 	return eh
 }

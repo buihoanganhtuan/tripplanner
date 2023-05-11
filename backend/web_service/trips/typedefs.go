@@ -1,10 +1,10 @@
 package trips
 
 import (
-	"strconv"
 	"strings"
 
-	constants "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
+	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/points"
 )
 
 /*
@@ -15,16 +15,16 @@ import (
 ***********************************************************
 */
 type Trip struct {
-	Id            string                  `json:"id"`
-	Type          string                  `json:"type"`
-	UserId        string                  `json:"userId,omitempty"`
-	Name          string                  `json:"name,omitempty"`
-	DateExpected  *constants.JsonDateTime `json:"dateExpected,omitempty"`
-	DateCreated   *constants.JsonDateTime `json:"dateCreated,omitempty"`
-	LastModified  constants.JsonDateTime  `json:"lastModified,omitempty"`
-	Budget        Cost                    `json:"budgetLimit"`
-	PreferredMode string                  `json:"preferredTransportMode"`
-	PlanResult    []Edge                  `json:"planResult"`
+	Id            TripId              `json:"id"`
+	Type          string              `json:"type"`
+	UserId        string              `json:"userId,omitempty"`
+	Name          string              `json:"name,omitempty"`
+	DateExpected  *utils.JsonDateTime `json:"dateExpected,omitempty"`
+	DateCreated   *utils.JsonDateTime `json:"dateCreated,omitempty"`
+	LastModified  utils.JsonDateTime  `json:"lastModified,omitempty"`
+	Budget        Cost                `json:"budgetLimit"`
+	PreferredMode string              `json:"preferredTransportMode"`
+	PlanResult    []Edge              `json:"planResult"`
 }
 
 /************************************************************
@@ -38,6 +38,7 @@ type Trip struct {
 
 ***********************************************************
 */
+type TripId string
 type Datetime struct {
 	Year     int    `json:"year"`
 	Month    int    `json:"month"`
@@ -46,15 +47,14 @@ type Datetime struct {
 	Min      int    `json:"min"`
 	TimeZone string `json:"timezone"`
 }
-
 type Edge struct {
-	PointId     PointId                `json:"pointId"`
-	NextPointId PointId                `json:"nextPointId"`
-	Start       constants.JsonDateTime `json:"start"`
-	Duration    Duration               `json:"duration"`
-	Cost        Cost                   `json:"Cost"`
-	Transport   string                 `json:"transportMode"`
-	GeoPointId  []GeoPointId           `json:"geoPointId"`
+	PointId     points.PointId      `json:"pointId"`
+	NextPointId points.PointId      `json:"nextPointId"`
+	Start       utils.JsonDateTime  `json:"start"`
+	Duration    Duration            `json:"duration"`
+	Cost        Cost                `json:"Cost"`
+	Transport   string              `json:"transportMode"`
+	GeoPointId  []points.GeoPointId `json:"geoPointId"`
 }
 
 type Duration struct {
@@ -67,38 +67,6 @@ type Cost struct {
 	Unit   string `json:"unit"`
 }
 
-type Point struct {
-	Id         PointId
-	GeoPointId GeoPointId
-	Name       string
-	Lat        float64
-	Lon        float64
-	Next       []Point
-	First      bool
-	Last       bool
-}
-
-type GeoPoint struct {
-	Id     GeoPointId `json:"geoPointId"`
-	HashId GeoHashId  `json:"-"`
-	Routes []RouteId  `json:"-"`
-	Lat    float64    `json:"latitude"`
-	Lon    float64    `json:"longitude"`
-	Tags   Tags       `json:"tags,omitempty"`
-}
-
-type ArrivalConstraint struct {
-	from constants.JsonDateTime `json:"from"`
-	to   constants.JsonDateTime `json:"to"`
-}
-
-type DurationConstraint struct {
-}
-
-type PointId int64
-type GeoPointId int64
-type Tags map[string]string
-
 /*
 ***********************************************************
 
@@ -107,20 +75,17 @@ type Tags map[string]string
 ***********************************************************
 */
 
-type GraphError []PointId
+type GraphError []points.PointId
 type CycleError []GraphError
 type MultiFirstError GraphError
 type MultiLastError GraphError
 type SimulFirstAndLastError GraphError
 type UnknownNodeIdError GraphError
 
-type PointOrder []PointId
+type PointOrder []points.PointId
 
 type Cycle []int
 type Cycles []Cycle
-
-type RouteId int64
-type GeoHashId int64
 
 /*
 ***********************************************************
@@ -162,8 +127,4 @@ func (ce CycleError) Error() string {
 
 func (sm SimulFirstAndLastError) Error() string {
 	return GraphError(sm).Error()
-}
-
-func (gpid GeoPointId) Stringer() string {
-	return strconv.FormatInt(int64(gpid), 10)
 }

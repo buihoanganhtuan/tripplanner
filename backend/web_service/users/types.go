@@ -1,7 +1,7 @@
 package users
 
 import (
-	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
+	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
 )
 
 // var fileServer = http.StripPrefix("/users", http.FileServer(http.Dir("./users/assets/")))
@@ -16,14 +16,14 @@ type User struct {
 
 // ********************** Request/Response *************************
 type UserResponse struct {
-	Id       string           `json:"id,omitempty"`
-	Name     string           `json:"name,omitempty"`
-	JoinDate cst.JsonDateTime `json:"joinDate,omitempty"`
+	Id       string             `json:"id,omitempty"`
+	Name     string             `json:"name,omitempty"`
+	JoinDate utils.JsonDateTime `json:"joinDate,omitempty"`
 }
 
 type UserRequest struct {
-	Id   string               `json:"id"`
-	Name cst.Optional[string] `json:"name"`
+	Id   string                 `json:"id"`
+	Name utils.Optional[string] `json:"name"`
 }
 
 // ********************** Data types *******************************

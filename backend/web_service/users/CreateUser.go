@@ -2,9 +2,11 @@ package users
 
 import (
 	"net/http"
+
+	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
 )
 
-func CreateUser(w http.ResponseWriter, rq *http.Request) (int, string, error) {
+func CreateUser(w http.ResponseWriter, rq *http.Request) (error, utils.ErrorResponse) {
 
-	return 0, "", nil
+	return nil, utils.ErrorResponse{}
 }
