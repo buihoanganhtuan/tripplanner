@@ -3,7 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	gjson "encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructures"
+	json "github.com/buihoanganhtuan/tripplanner/backend/web_service/encodings/json"
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/planner"
 	"github.com/gorilla/mux"
 )
@@ -63,13 +65,13 @@ func (sm SimulFirstAndLastError) Error() string {
 
 func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
 	var eh planner.ErrorHandler
-	eh = planner.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, planner.ErrorResponse) {
+	eh = planner.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, ErrorResponse) {
 		id := mux.Vars(r)["id"]
 
 		ctx := context.Background()
 		tx, err := cst.Db.BeginTx(ctx, nil)
 		if err != nil {
-			return err, utils.NewDatabaseQueryError()
+			return err, NewDatabaseQueryError()
 		}
 
 		var budget int
@@ -86,7 +88,7 @@ func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
 		}
 
 		if err != nil {
-			return err, utils.NewDatabaseQueryError()
+			return err, NewDatabaseQueryError()
 		}
 
 		var ed, cd, lastModified time.Time
@@ -95,47 +97,47 @@ func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
 		if !anonymous {
 			ed, err = time.Parse(cst.DatetimeFormat, edStr)
 			if err != nil {
-				return err, utils.NewServerParseError()
+				return err, NewServerParseError()
 			}
 			expectedDate = &ed
 
 			cd, err = time.Parse(cst.DatetimeFormat, cdStr)
 			if err != nil {
-				return err, utils.NewServerParseError()
+				return err, NewServerParseError()
 			}
 			createdDate = &cd
 		}
 
 		lastModified, err = time.Parse(cst.DatetimeFormat, lmStr)
 		if err != nil {
-			return err, utils.NewServerParseError()
+			return err, NewServerParseError()
 		}
 
 		var edges []Edge
 		var rows *sql.Rows
-		rows, err = tx.Query("select PointId, NextPointId, Start, DurationHr, DurationMin, CostAmount, CostUnit, Transport from ? order by ord where tripId = ?", cst.SqlEdgeTableVar, id)
+		rows, err = tx.Query("select planner.PointId, Nextplanner.PointId, Start, DurationHr, DurationMin, CostAmount, CostUnit, Transport from ? order by ord where tripId = ?", cst.SqlEdgeTableVar, id)
 		if err != nil {
-			return err, utils.NewDatabaseQueryError()
+			return err, NewDatabaseQueryError()
 		}
 
 		for rows.Next() {
-			var pointId, nextPointId, _start, costUnit, transport string
+			var PointId, nextPointId, _start, costUnit, transport string
 			var durationHr, durationMin, costAmount int
-			err = rows.Scan(&pointId, &nextPointId, &_start, &durationHr, &durationMin, &costAmount, &costUnit, &transport)
+			err = rows.Scan(&PointId, &nextPointId, &_start, &durationHr, &durationMin, &costAmount, &costUnit, &transport)
 			if err != nil {
-				return err, utils.NewDatabaseQueryError()
+				return err, NewDatabaseQueryError()
 			}
 
 			var start time.Time
 			start, err = time.Parse(cst.DatetimeFormat, _start)
 			if err != nil {
-				return err, utils.NewServerParseError()
+				return err, NewServerParseError()
 			}
 
 			edges = append(edges, Edge{
-				PointId:     planner.PointId(pointId),
-				NextPointId: planner.PointId(nextPointId),
-				Start:       utils.JsonDateTime(start),
+				planner.PointId:     planner.PointId(PointId),
+				Nextplanner.PointId: planner.PointId(nextPointId),
+				Start:               json.JsonDateTime(start),
 				Duration: planner.Duration{
 					Hour: durationHr,
 					Min:  durationMin,
@@ -150,7 +152,7 @@ func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
 
 		err = rows.Err()
 		if err != nil {
-			return err, utils.NewDatabaseQueryError()
+			return err, NewDatabaseQueryError()
 		}
 
 		var body []byte
@@ -158,14 +160,14 @@ func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
 		if anonymous {
 			tp = "anonymous"
 		}
-		body, err = json.Marshal(planner.Trip{
+		body, err = gjson.Marshal(planner.Trip{
 			Id:           planner.TripId(id),
 			UserId:       uid,
 			Type:         tp,
 			Name:         name,
-			DateExpected: (*utils.JsonDateTime)(expectedDate),
-			DateCreated:  (*utils.JsonDateTime)(createdDate),
-			LastModified: utils.JsonDateTime(lastModified),
+			DateExpected: (*json.JsonDateTime)(expectedDate),
+			DateCreated:  (*json.JsonDateTime)(createdDate),
+			LastModified: json.JsonDateTime(lastModified),
 			Budget: planner.Cost{
 				Amount: budget,
 				Unit:   budgetUnit,
@@ -175,95 +177,95 @@ func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
 		})
 
 		if err != nil {
-			return err, utils.NewUnknownError()
+			return err, NewUnknownError()
 		}
 
 		w.Write(body)
 		w.WriteHeader(http.StatusOK)
-		return nil, planner.ErrorResponse{}
+		return nil, ErrorResponse{}
 	})
 	return eh
 }
 
 func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
-	return utils.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, planner.ErrorResponse) {
+	return utils.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, ErrorResponse) {
 		tripId, present := mux.Vars(r)["id"]
 		if !present {
-			return nil, utils.NewInvalidIdError()
+			return nil, NewInvalidIdError()
 		}
 
 		var expectDateStr, budgetStr, budgetUnitStr, transportStr string
 		var err error
 		row := cst.Db.QueryRow("select ExpectedDate, BudgetLimit, BudgetUnit, PreferredTransportMode from ? where TripId = ?", cst.Ev.Var(cst.SqlTripTableVar), tripId)
 		if err = row.Scan(&expectDateStr, &budgetStr, &budgetUnitStr, &transportStr); err == sql.ErrNoRows {
-			return err, utils.NewInvalidIdError()
+			return err, NewInvalidIdError()
 		}
 
 		var expectDate time.Time
 		expectDate, err = time.Parse(cst.DatetimeFormat, expectDateStr)
 		if err != nil {
-			return err, utils.NewServerParseError()
+			return err, NewServerParseError()
 		}
 
 		var budget int
 		budget, err = strconv.Atoi(budgetStr)
 		if err != nil {
-			return err, utils.NewServerParseError()
+			return err, NewServerParseError()
 		}
 
-		allowedUnits := utils.NewSet[string]("JPY", "USD")
-		allowedModes := utils.NewSet[string]("train", "bus", "walk")
+		allowedUnits := datastructures.NewSet[string]("JPY", "USD")
+		allowedModes := datastructures.NewSet[string]("train", "bus", "walk")
 		if !allowedUnits.Contains(budgetUnitStr) || allowedModes.Contains(transportStr) {
-			return errors.New(""), utils.NewServerParseError()
+			return errors.New(""), NewServerParseError()
 		}
 
 		// Get the points in the trip
 		var rows *sql.Rows
-		rows, err = cst.Db.Query("select Id, GeoPointId, Name, Lat, Lon from ? where TripId = ?", cst.Ev.Var(cst.SqlPointTableVar), tripId)
+		rows, err = cst.Db.Query("select Id, Geoplanner.PointId, Name, Lat, Lon from ? where TripId = ?", cst.Ev.Var(cst.SqlPointTableVar), tripId)
 		if err != nil {
-			return err, utils.NewDatabaseQueryError()
+			return err, NewDatabaseQueryError()
 		}
 
-		points := map[PointId]Point{}
+		points := datastructures.NewMap[planner.PointId, planner.Point]()
 		for rows.Next() {
-			var pid PointId
-			var gpid GeoPointId
+			var pid planner.PointId
+			var gpid Geoplanner.PointId
 			var name string
 			var lat, lon float64
 			err = rows.Scan(&pid, &gpid, &name, &lat, &lon)
 			if err != nil {
-				return err, utils.NewUnknownError()
+				return err, NewUnknownError()
 			}
-			points[pid] = Point{
+			points.Put(pid, planner.Point{
 				Id:         pid,
 				Name:       name,
 				GeoPointId: gpid,
 				Lat:        lat,
 				Lon:        lon,
-			}
+			})
 		}
 
 		if rows.Err() != nil {
-			return rows.Err(), utils.NewDatabaseQueryError()
+			return rows.Err(), NewDatabaseQueryError()
 		}
 
 		// Get the point constraints and construct edges
-		rows, err = cst.Db.Query("select FirstPointId, SecondPointId, ConstraintType from ? where FirstPointId in ("+strings.Join(pids.Values(), ",")+")", cst.PointConstraintTable)
+		rows, err = cst.Db.Query("select Firstplanner.PointId, Secondplanner.PointId, ConstraintType from ? where Firstplanner.PointId in ("+strings.Join(pids.Values(), ",")+")", cst.PointConstraintTable)
 		if err != nil {
-			return err, utils.NewDatabaseQueryError()
+			return err, NewDatabaseQueryError()
 		}
 
 		for rows.Next() {
-			var pid1, pid2 PointId
+			var pid1, pid2 planner.PointId
 			var t string
 			rows.Scan(&pid1, &pid2, &t)
 			p1, ok := points[pid1]
 			if !ok {
-				return fmt.Errorf("unknown point id %s", pid1), utils.NewServerParseError()
+				return fmt.Errorf("unknown point id %s", pid1), NewServerParseError()
 			}
 			p2, ok := points[pid2]
 			if !ok {
-				return fmt.Errorf("unknown point id %s", pid1), utils.NewServerParseError()
+				return fmt.Errorf("unknown point id %s", pid1), NewServerParseError()
 			}
 			switch t {
 			case "before":
@@ -275,7 +277,7 @@ func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
 			case "last":
 				p1.Last = true
 			default:
-				return fmt.Errorf("unknown constraint type %s", t), utils.NewServerParseError()
+				return fmt.Errorf("unknown constraint type %s", t), NewServerParseError()
 			}
 		}
 
@@ -285,30 +287,30 @@ func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
 		if anonymous {
 			maxTrips = cst.MaxCandidateAnonTrips
 		}
-		candTrips, err = topologicalSort(utils.GetMapValues[PointId, Point](points), maxTrips)
+		candTrips, err = topologicalSort(points.Values(), maxTrips)
 
 		if err != nil {
 			switch err := err.(type) {
 			case CycleError:
-				var errs []utils.ErrorDescriptor
+				var errs []ErrorDescriptor
 				for _, ge := range []GraphError(err) {
 					var cycle []string
-					for _, pid := range []PointId(ge) {
-						cycle = append(cycle, points[pid].Name)
+					for _, pid := range []planner.PointId(ge) {
+						cycle = append(cycle, points.Get(pid).Name)
 					}
-					errs = append(errs, utils.ErrorDescriptor{
+					errs = append(errs, ErrorDescriptor{
 						Domain:  cst.WebServiceName,
 						Reason:  "Cycle found in graph",
 						Message: strings.Join(cycle, ","),
 					})
 				}
-				return err, planner.ErrorResponse{
+				return err, ErrorResponse{
 					Code:    http.StatusInternalServerError,
 					Message: "Nodes form cycle(s)",
 					Errors:  errs,
 				}
 			case MultiFirstError, MultiLastError, SimulFirstAndLastError, UnknownNodeIdError:
-				return err, planner.ErrorResponse{
+				return err, ErrorResponse{
 					Code: http.StatusInternalServerError,
 					// TODO
 				}
@@ -318,12 +320,12 @@ func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
 		}
 
 		// Get all close routes for each point
-		var nearbyRoutePoints map[PointId][]GeoPoint
-		for _, p := range utils.GetMapValues[PointId, Point](points) {
+		var nearbyRoutePoints datastructures.Map[planner.PointId, []planner.GeoPoint]
+		for _, p := range points.Values() {
 			var nps []GeoPoint
 			nps, err = getNearbyRoutePoints(p, cst.RouteSearchRadius)
 			if err != nil {
-				return err, utils.NewUnknownError()
+				return err, NewUnknownError()
 			}
 			nearbyRoutePoints[p.Id] = nps
 		}
@@ -339,7 +341,7 @@ func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
 			}
 		}
 
-		return nil, planner.ErrorResponse{}
+		return nil, ErrorResponse{}
 	})
 }
 
@@ -347,23 +349,23 @@ func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
 Extract possible solutions to a certain DAG ordering. As the number of solutions can be
 quite large, we terminate the search when the number of results found thus far exceed lim
 */
-func topologicalSort(points []Point, startTime time.Time, lim int) ([]PointOrder, error) {
-	intIds := map[PointId]int{}
-	pointIds := map[int]PointId{}
+func topologicalSort(points []planner.Point, startTime time.Time, lim int) ([]PointOrder, error) {
+	intIds := map[planner.PointId]int{}
+	planner.PointIds := map[int]planner.PointId{}
 
-	mapback := func(intIds []int) []PointId {
-		var ids []PointId
+	mapback := func(intIds []int) []planner.PointId {
+		var ids []planner.PointId
 		for _, id := range intIds {
-			ids = append(ids, pointIds[id])
+			ids = append(ids, planner.PointIds[id])
 		}
 		return ids
 	}
 
-	// convert pointId (string) to integer id
+	// convert planner.PointId (string) to integer id
 	var first, last, both []int
 	for i, p := range points {
 		intIds[p.Id] = i
-		pointIds[i] = p.Id
+		planner.PointIds[i] = p.Id
 		if p.First && p.Last {
 			both = append(both, i)
 		}
@@ -388,7 +390,7 @@ func topologicalSort(points []Point, startTime time.Time, lim int) ([]PointOrder
 	}
 
 	// verify that there's no unknown node
-	var unknown []PointId
+	var unknown []planner.PointId
 	for _, p := range points {
 		if _, ok := intIds[p.Id]; ok {
 			continue
@@ -638,7 +640,7 @@ func getNearbyRoutePoints(point Point, dist float64) ([]GeoPoint, error) {
 		}
 	}
 
-	q := fmt.Sprintf(`select RouteId, GeoPointId, NodeLat, NodeLon 
+	q := fmt.Sprintf(`select RouteId, Geoplanner.PointId, NodeLat, NodeLon 
 						from %s 
 						where GeoHashId in (?)`, cst.SqlWayTableVar)
 	rows, err := cst.Db.Query(q, strings.Join(geoHashes, ","))
@@ -682,7 +684,7 @@ func getNearbyRoutePoints(point Point, dist float64) ([]GeoPoint, error) {
 	return res, nil
 }
 
-func FindShortestPath(src utils.Set[RouteId], dst utils.Set[RouteId], preferMode string, budget int) []RouteId {
+func FindShortestPath(src datastructures.Set[RouteId], dst datastructures.Set[RouteId], preferMode string, budget int) []RouteId {
 
 }
 

@@ -39,3 +39,7 @@ func (q *Queue[T]) Peek() (T, bool) {
 func (q *Queue[T]) IsEmpty() bool {
 	return q.sz == 0
 }
+
+func (q *Queue[T]) Size() int {
+	return q.sz
+}

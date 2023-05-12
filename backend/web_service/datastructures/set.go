@@ -65,10 +65,10 @@ func (s *Set[T]) ToString(fmtFn func(T) string, sep string) string {
 	return strings.Join(tmp, sep)
 }
 
-func NewSet[T comparable](vals ...T) Set[T] {
+func NewSet[T comparable](vals ...T) *Set[T] {
 	var s Set[T]
 	for _, v := range vals {
 		s.Add(v)
 	}
-	return s
+	return &s
 }
