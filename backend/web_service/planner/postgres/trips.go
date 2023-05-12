@@ -1,7 +1,9 @@
-package trips
+package postgres
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -11,13 +13,180 @@ import (
 	"strings"
 	"time"
 
-	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
-	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/planner"
 	"github.com/gorilla/mux"
 )
 
+type GraphError []planner.PointId
+type CycleError []GraphError
+type MultiFirstError GraphError
+type MultiLastError GraphError
+type SimulFirstAndLastError GraphError
+type UnknownNodeIdError GraphError
+type PointOrder []planner.PointId
+type Cycle []int
+type Cycles []Cycle
+
+func (ge GraphError) Error() string {
+	var pids []string
+	for _, pid := range ge {
+		pids = append(pids, string(pid))
+	}
+	return strings.Join(pids, ",")
+}
+
+func (mf MultiFirstError) Error() string {
+	return GraphError(mf).Error()
+}
+
+func (ml MultiLastError) Error() string {
+	return GraphError(ml).Error()
+}
+
+func (un UnknownNodeIdError) Error() string {
+	return GraphError(un).Error()
+}
+
+func (ce CycleError) Error() string {
+	ges := []GraphError(ce)
+	var sb strings.Builder
+	for _, ge := range ges {
+		sb.WriteString(ge.Error())
+		sb.WriteString("\\n")
+	}
+	return sb.String()
+}
+
+func (sm SimulFirstAndLastError) Error() string {
+	return GraphError(sm).Error()
+}
+
+func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
+	var eh planner.ErrorHandler
+	eh = planner.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, planner.ErrorResponse) {
+		id := mux.Vars(r)["id"]
+
+		ctx := context.Background()
+		tx, err := cst.Db.BeginTx(ctx, nil)
+		if err != nil {
+			return err, utils.NewDatabaseQueryError()
+		}
+
+		var budget int
+		var uid, name, edStr, cdStr, lmStr, budgetUnit, tm string
+		if anonymous {
+
+		}
+		if anonymous {
+			r := tx.QueryRow("select Name, LastModified, BudgetLimit, BudgetUnit, PreferredTransportMode from ? where id = ?", cst.Ev.Var(cst.SqlAnonTripTableVar), id)
+			err = r.Scan(&name, &lmStr, &budget, &budgetUnit, &tm)
+		} else {
+			r := tx.QueryRow("select UserId, Name, ExpectedDate, CreatedDate, LastModified, BudgetLimit, BudgetUnit, PreferredTransportMode from ? where id = ?", cst.Ev.Var(cst.SqlTripTableVar), id)
+			err = r.Scan(&uid, &name, &edStr, &cdStr, &lmStr, &budget, &budgetUnit, &tm)
+		}
+
+		if err != nil {
+			return err, utils.NewDatabaseQueryError()
+		}
+
+		var ed, cd, lastModified time.Time
+		var expectedDate, createdDate *time.Time
+
+		if !anonymous {
+			ed, err = time.Parse(cst.DatetimeFormat, edStr)
+			if err != nil {
+				return err, utils.NewServerParseError()
+			}
+			expectedDate = &ed
+
+			cd, err = time.Parse(cst.DatetimeFormat, cdStr)
+			if err != nil {
+				return err, utils.NewServerParseError()
+			}
+			createdDate = &cd
+		}
+
+		lastModified, err = time.Parse(cst.DatetimeFormat, lmStr)
+		if err != nil {
+			return err, utils.NewServerParseError()
+		}
+
+		var edges []Edge
+		var rows *sql.Rows
+		rows, err = tx.Query("select PointId, NextPointId, Start, DurationHr, DurationMin, CostAmount, CostUnit, Transport from ? order by ord where tripId = ?", cst.SqlEdgeTableVar, id)
+		if err != nil {
+			return err, utils.NewDatabaseQueryError()
+		}
+
+		for rows.Next() {
+			var pointId, nextPointId, _start, costUnit, transport string
+			var durationHr, durationMin, costAmount int
+			err = rows.Scan(&pointId, &nextPointId, &_start, &durationHr, &durationMin, &costAmount, &costUnit, &transport)
+			if err != nil {
+				return err, utils.NewDatabaseQueryError()
+			}
+
+			var start time.Time
+			start, err = time.Parse(cst.DatetimeFormat, _start)
+			if err != nil {
+				return err, utils.NewServerParseError()
+			}
+
+			edges = append(edges, Edge{
+				PointId:     planner.PointId(pointId),
+				NextPointId: planner.PointId(nextPointId),
+				Start:       utils.JsonDateTime(start),
+				Duration: planner.Duration{
+					Hour: durationHr,
+					Min:  durationMin,
+				},
+				Cost: planner.Cost{
+					Amount: costAmount,
+					Unit:   costUnit,
+				},
+				Transport: transport,
+			})
+		}
+
+		err = rows.Err()
+		if err != nil {
+			return err, utils.NewDatabaseQueryError()
+		}
+
+		var body []byte
+		tp := "registered"
+		if anonymous {
+			tp = "anonymous"
+		}
+		body, err = json.Marshal(planner.Trip{
+			Id:           planner.TripId(id),
+			UserId:       uid,
+			Type:         tp,
+			Name:         name,
+			DateExpected: (*utils.JsonDateTime)(expectedDate),
+			DateCreated:  (*utils.JsonDateTime)(createdDate),
+			LastModified: utils.JsonDateTime(lastModified),
+			Budget: planner.Cost{
+				Amount: budget,
+				Unit:   budgetUnit,
+			},
+			PreferredMode: tm,
+			PlanResult:    edges,
+		})
+
+		if err != nil {
+			return err, utils.NewUnknownError()
+		}
+
+		w.Write(body)
+		w.WriteHeader(http.StatusOK)
+		return nil, planner.ErrorResponse{}
+	})
+	return eh
+}
+
 func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
-	return utils.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, utils.ErrorResponse) {
+	return utils.ErrorHandler(func(w http.ResponseWriter, r *http.Request) (error, planner.ErrorResponse) {
 		tripId, present := mux.Vars(r)["id"]
 		if !present {
 			return nil, utils.NewInvalidIdError()
@@ -133,13 +302,13 @@ func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
 						Message: strings.Join(cycle, ","),
 					})
 				}
-				return err, utils.ErrorResponse{
+				return err, planner.ErrorResponse{
 					Code:    http.StatusInternalServerError,
 					Message: "Nodes form cycle(s)",
 					Errors:  errs,
 				}
 			case MultiFirstError, MultiLastError, SimulFirstAndLastError, UnknownNodeIdError:
-				return err, utils.ErrorResponse{
+				return err, planner.ErrorResponse{
 					Code: http.StatusInternalServerError,
 					// TODO
 				}
@@ -170,7 +339,7 @@ func newPlanTripHandler(anonymous bool) utils.ErrorHandler {
 			}
 		}
 
-		return nil, utils.ErrorResponse{}
+		return nil, planner.ErrorResponse{}
 	})
 }
 

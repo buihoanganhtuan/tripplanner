@@ -23,16 +23,9 @@ type EnvironmentVariableMap struct {
 	err    error
 }
 
-type Set[T comparable] struct {
-	m  map[T]bool
-	sz int
-}
 
-type Queue[T any] struct {
-	popStack  []T
-	pushStack []T
-	sz        int
-}
+
+
 
 // Tagging to assist JSON Marshalling (converting a structured data into a JSON string)
 // Note that in this case, missing, null, and zero values are handled in the same way so
@@ -128,127 +121,10 @@ func (o *Optional[T]) UnmarshalJSON(data []byte) error {
 	}
 }
 
-// Conventions followed: https://google.github.io/styleguide/jsoncstyleguide.xml#Reserved_Property_Names_in_the_error_object
-type ErrorHandler func(http.ResponseWriter, *http.Request) (error, ErrorResponse)
 
-type AppError struct {
-	Err  error
-	Resp ErrorResponse
-}
 
-type ErrorResponse struct {
-	Code    int               `json:"code"`
-	Message string            `json:"message,omitempty"`
-	Errors  []ErrorDescriptor `json:"errors,omitempty"`
-}
 
-type ErrorDescriptor struct {
-	Domain       string `json:"domain,omitempty"`
-	Reason       string `json:"reason,omitempty"`
-	Message      string `json:"message,omitempty"`
-	Location     string `json:"location,omitempty"`
-	LocationType string `json:"location,omitempty"`
-}
 
-func (q *Queue[T]) Push(val T) {
-	q.pushStack = append(q.pushStack, val)
-	q.sz++
-}
-
-func (q *Queue[T]) Pop() (T, bool) {
-	ret, ok := q.Peek()
-	if !ok {
-		return ret, ok
-	}
-	q.popStack = q.popStack[:len(q.popStack)-1]
-	q.sz--
-	return ret, ok
-}
-
-func (q *Queue[T]) Peek() (T, bool) {
-	var ret T
-	if q.sz == 0 {
-		return ret, false
-	}
-	if len(q.popStack) == 0 {
-		for i := len(q.pushStack) - 1; i > -1; i-- {
-			q.popStack = append(q.popStack, q.pushStack[i])
-		}
-		q.pushStack = []T{}
-	}
-	ret = q.popStack[len(q.popStack)-1]
-	return ret, true
-}
-
-func (q *Queue[T]) IsEmpty() bool {
-	return q.sz == 0
-}
-
-func (s *Set[T]) Add(val T) bool {
-	_, ok := s.m[val]
-	if ok {
-		return false
-	}
-	s.m[val] = true
-	s.sz++
-	return true
-}
-
-func (s *Set[T]) AddAll(vals ...T) []bool {
-	res := make([]bool, len(vals))
-	for i, v := range vals {
-		res[i] = s.Add(v)
-	}
-	return res
-}
-
-func (s *Set[T]) Remove(val T) bool {
-	_, ok := s.m[val]
-	if !ok {
-		return false
-	}
-	delete(s.m, val)
-	s.sz--
-	return true
-}
-
-func (s *Set[T]) Contains(val T) bool {
-	_, ok := s.m[val]
-	return ok
-}
-
-func (s *Set[T]) Empty() bool {
-	return s.sz == 0
-}
-
-func (s *Set[T]) Size() int {
-	return s.sz
-}
-
-func (s *Set[T]) Values() []T {
-	var res []T
-	for k := range s.m {
-		res = append(res, k)
-	}
-	return res
-}
-
-func (s *Set[T]) ToString(fmtFn func(T) string, sep string) string {
-	tmp := make([]string, s.sz)
-	var i int
-	for k := range s.m {
-		tmp[i] = fmtFn(k)
-	}
-	return strings.Join(tmp, sep)
-}
-
-func NewSet[T comparable](vals ...T) Set[T] {
-	var s Set[T]
-	for _, v := range vals {
-		s.Add(v)
-	}
-	return s
-}
 
 func (env *EnvironmentVariableMap) Fetch(names ...string) {
 	if env.err != nil {

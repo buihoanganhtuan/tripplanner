@@ -13,6 +13,9 @@ to know how to use it and 2) no HATEOAS: the response is not hypermedia (think H
 but pure data (think pure JSON) implies that this is not a "true" REST API. However,
 such is also 99% of APIs that claim to be RESTful today.
 
+The method template is <methodName>(<param>: <type>) : <returnTypeIfSuccess>
+Note how we don't specify the error response format. That will be up to implementation
+
 */
 abstract class TripPlannerApi {
     static version = "v1.0.0";
@@ -255,7 +258,7 @@ interface Trip {
     lastModified: Datetime;
     budgetLimit: Cost;
     preferredTransportMode: 'train' | 'bus' | 'walk';
-    planResult: Edge[];
+    planResult: Path[];
 }
 
 interface Point {
@@ -263,10 +266,12 @@ interface Point {
 
     tripId: string;
     geoPointId: string;
-    arrivalConstraint: PointArrivalConstraint;
+    arrivalConstraint?: PointArrivalConstraint;
     durationConstraint: PointDurationConstraint;
-    beforeConstraint: PointBeforeConstraint;
-    afterConstraint: PointAfterConstraint;
+    beforeConstraint?: PointBeforeConstraint;
+    afterConstraint?: PointAfterConstraint;
+    first?: boolean;
+    last?: boolean;
 }
 
 interface GeoPoint {
@@ -275,7 +280,7 @@ interface GeoPoint {
     lat: string;
     lon: string;
     name?: string;
-    address?: string;
+    address: Address;
     tags?: KeyValuePair[];
 }
 
@@ -331,16 +336,47 @@ interface Datetime {
     timezone: string;
 }
 
-interface Edge {
+interface Path {
     pointId: string;
     nextPointId: string;
     start: Datetime;
+    duration: Duration;    
+    transports: TransportInfo[];
+}
+
+// polymorphic resource
+interface TransportInfo {
+    start: Datetime;
     duration: Duration;
+    type: 'train' | 'bus' | 'walk'
+    info: BusInfo | TrainInfo | WalkInfo
+}
+
+interface BusInfo {
     cost: Cost;
-    transportMode: 'train' | 'bus' | 'walk'
+    operator: string;
+    route: string;
+    busNumber: string;
+}
+
+interface TrainInfo {
+    cost: Cost;
+    operator: string;
+    line: string;
+}
+
+interface WalkInfo {
+
 }
 
 interface KeyValuePair {
     key: string;
     value: string;
+}
+
+interface Address {
+    prefecture: string;
+    city: string;
+    district: string;
+    landNumber: string;
 }
