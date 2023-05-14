@@ -1,4 +1,4 @@
-package datastructures
+package datastructure
 
 type Queue[T any] struct {
 	popStack  []T

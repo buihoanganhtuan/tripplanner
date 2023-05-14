@@ -8,7 +8,7 @@ import (
 	"os"
 	"strconv"
 
-	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/environment/variables"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/redis/go-redis/v9"
 )
@@ -16,7 +16,7 @@ import (
 var Db *sql.DB
 var Kvs *redis.Client
 var Pk *rsa.PublicKey
-var Ev utils.EnvironmentVariableMap
+var Ev variables.EnvironmentVariableMap
 
 const (
 	DatetimeFormat              = "2006-01-02 15:04:05 -0700"
@@ -62,12 +62,6 @@ func init() {
 		PublicKeyPathVar)
 
 	var err error
-	Db, err = sql.Open("postgres", fmt.Sprintf("host=%s port=%s username=%s password=%s dbname=%s sslmode=disabled",
-		Ev.Var(SqlHostVar),
-		Ev.Var(SqlPortVar),
-		Ev.Var(SqlUsernameVar),
-		Ev.Var(SqlPasswordVar),
-		Ev.Var(SqlWebDbNameVar)))
 
 	if err != nil {
 		panic(fmt.Errorf("database connection error: %v", err))

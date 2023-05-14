@@ -7,16 +7,16 @@ import (
 
 var defaultFormat string
 
-type JsonDateTime struct {
+type DateTime struct {
 	t   time.Time
 	fmt string
 }
 
-func (dt JsonDateTime) MarshalJSON() ([]byte, error) {
+func (dt DateTime) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + dt.t.Format(dt.fmt) + `"`), nil
 }
 
-func (dt *JsonDateTime) UnmarshalJSON(b []byte) error {
+func (dt *DateTime) UnmarshalJSON(b []byte) error {
 	if string(b) == "null" {
 		return nil
 	}
@@ -39,14 +39,14 @@ func (dt *JsonDateTime) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	dt = &JsonDateTime{
+	dt = &DateTime{
 		t:   t,
 		fmt: fmt,
 	}
 	return nil
 }
 
-func (dt JsonDateTime) Compare(odt JsonDateTime) int {
+func (dt DateTime) Compare(odt DateTime) int {
 	t1 := time.Time(dt.t)
 	t2 := time.Time(odt.t)
 	if t1.Before(t2) {
@@ -62,8 +62,8 @@ func SetDefaultFormat(fmt string) {
 	defaultFormat = fmt
 }
 
-func NewJsonDateTime(t time.Time, fmt string) *JsonDateTime {
-	return &JsonDateTime{
+func NewJsonDateTime(t time.Time, fmt string) *DateTime {
+	return &DateTime{
 		t:   t,
 		fmt: fmt,
 	}

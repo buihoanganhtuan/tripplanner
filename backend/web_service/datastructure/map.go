@@ -1,4 +1,4 @@
-package datastructures
+package datastructure
 
 type Map[K comparable, V any] struct {
 	mp map[K]V

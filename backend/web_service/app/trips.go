@@ -1,4 +1,4 @@
-package postgres
+package app
 
 import (
 	"context"
@@ -13,19 +13,33 @@ import (
 	"strings"
 	"time"
 
-	"github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructures"
-	json "github.com/buihoanganhtuan/tripplanner/backend/web_service/encodings/json"
-	"github.com/buihoanganhtuan/tripplanner/backend/web_service/planner"
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructure"
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/domain"
+	json "github.com/buihoanganhtuan/tripplanner/backend/web_service/encoding/json"
 	"github.com/gorilla/mux"
 )
 
-type GraphError []planner.PointId
+// Application implementation of domain's types
+type Trip struct {
+	Id            domain.TripId `json:"id"`
+	Type          string        `json:"type"`
+	UserId        string        `json:"userId,omitempty"`
+	Name          string        `json:"name,omitempty"`
+	DateExpected  *json.DateTime     `json:"dateExpected,omitempty"`
+	DateCreated   *json.DateTime     `json:"dateCreated,omitempty"`
+	LastModified  *json.DateTime     `json:"lastModified,omitempty"`
+	Budget        Cost          `json:"budgetLimit"`
+	PreferredMode string        `json:"preferredTransportMode"`
+	PlanResult    []Path        `json:"planResult"`
+}
+
+type GraphError []domain.PointId
 type CycleError []GraphError
 type MultiFirstError GraphError
 type MultiLastError GraphError
 type SimulFirstAndLastError GraphError
 type UnknownNodeIdError GraphError
-type PointOrder []planner.PointId
+type PointOrder []domain.PointId
 type Cycle []int
 type Cycles []Cycle
 
@@ -69,7 +83,7 @@ func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
 		id := mux.Vars(r)["id"]
 
 		ctx := context.Background()
-		tx, err := cst.Db.BeginTx(ctx, nil)
+		tx, err := .Db.BeginTx(ctx, nil)
 		if err != nil {
 			return err, NewDatabaseQueryError()
 		}
@@ -137,7 +151,7 @@ func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
 			edges = append(edges, Edge{
 				planner.PointId:     planner.PointId(PointId),
 				Nextplanner.PointId: planner.PointId(nextPointId),
-				Start:               json.JsonDateTime(start),
+				Start:               json.DateTime(start),
 				Duration: planner.Duration{
 					Hour: durationHr,
 					Min:  durationMin,
@@ -165,9 +179,9 @@ func NewGetTripHandler(anonymous bool) planner.ErrorHandler {
 			UserId:       uid,
 			Type:         tp,
 			Name:         name,
-			DateExpected: (*json.JsonDateTime)(expectedDate),
-			DateCreated:  (*json.JsonDateTime)(createdDate),
-			LastModified: json.JsonDateTime(lastModified),
+			DateExpected: (*json.DateTime)(expectedDate),
+			DateCreated:  (*json.DateTime)(createdDate),
+			LastModified: json.DateTime(lastModified),
 			Budget: planner.Cost{
 				Amount: budget,
 				Unit:   budgetUnit,

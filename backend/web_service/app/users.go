@@ -1,55 +1,53 @@
-package postgres
+package app
 
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	gjson "encoding/json"
 	"errors"
 	"net/http"
 	"time"
 
-	cst "github.com/buihoanganhtuan/tripplanner/backend/web_service/_constants"
-	utils "github.com/buihoanganhtuan/tripplanner/backend/web_service/_utils"
-	"github.com/buihoanganhtuan/tripplanner/backend/web_service/planner"
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/domain"
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/encoding/json"
 	"github.com/gorilla/mux"
 )
 
-func GetUser(w http.ResponseWriter, rq *http.Request) (error, planner.ErrorResponse) {
-	id := mux.Vars(rq)["id"]
-
-	var uid, name, joindateStr string
-	err := cst.Db.QueryRow("select id, name, join_date from ? where id = ?", cst.Ev.Var(cst.SqlUserTableVar), id).
-		Scan(&uid, &name, &joindateStr)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return err, utils.NewInvalidIdError()
-		}
-		return err, utils.NewDatabaseQueryError()
-	}
-
-	joinDate, err := time.Parse(cst.DatetimeFormat, joindateStr)
-
-	if err != nil {
-		return err, utils.NewServerParseError()
-	}
-
-	resource, err := json.Marshal(UserResponse{
-		Id:       uid,
-		Name:     name,
-		JoinDate: utils.JsonDateTime(joinDate),
-	})
-
-	if err != nil {
-		return err, utils.NewMarshalError()
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(resource)
-
-	return nil, planner.ErrorResponse{}
+// Application implementation of domain's types
+type User struct {
+	Id       domain.UserId `json:"id"`
+	Name     string        `json:"name"`
+	JoinDate json.DateTime `json:"joinDate"`
+	Email    string        `json:"email"`
+	Password string        `json:"password"`
 }
 
-func UpdateUser(w http.ResponseWriter, rq *http.Request) (error, planner.ErrorResponse) {
+func GetUser(id string) (domain.User, error) {
+	if len(id) == 0 {
+		return domain.User{}, errors.New("empty id")
+	}
+
+	u, err := App.Db.GetUser(domain.UserId(id))
+	if err != nil {
+
+	}
+
+	var b []byte
+	b, err = gjson.Marshal(u.JoinDate)
+	if err != nil {
+
+	}
+
+	return domain.User{
+		Id:       domain.UserId(id),
+		Name:     u.Name,
+		JoinDate: string(b),
+		Email:    u.Email,
+		Password: u.Password,
+	}, nil
+}
+
+func UpdateUser(user domain.User) (domain.User, error) {
 	id := mux.Vars(rq)["id"]
 
 	var data []byte

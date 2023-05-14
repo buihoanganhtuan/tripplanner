@@ -1,29 +1,10 @@
-package planner
+package domain
 
-type Trip struct {
-	Id            TripId    `json:"id"`
-	Type          string    `json:"type"`
-	UserId        string    `json:"userId,omitempty"`
-	Name          string    `json:"name,omitempty"`
-	DateExpected  *DateTime `json:"dateExpected,omitempty"`
-	DateCreated   *DateTime `json:"dateCreated,omitempty"`
-	LastModified  *DateTime `json:"lastModified,omitempty"`
-	Budget        Cost      `json:"budgetLimit"`
-	PreferredMode string    `json:"preferredTransportMode"`
-	PlanResult    []Path    `json:"planResult"`
-}
-
-type TripService interface {
-	GetTrip(id TripId) (Trip, error)
-	CreateTrip(t Trip) (Trip, error)
-	ListTrips() ([]Trip, error)
-	UpdateTrip(t Trip) (Trip, error)
-	ReplaceTrip(t Trip) (Trip, error)
-	PlanTrip(id TripId) (Trip, error)
-	DeleteTrip(id TripId) error
-}
-
-type TripId string
+/*
+A domain-level package Define domain types that model
+real entities involved in the business, independent
+from any underlying technology.
+*/
 
 type DateTime struct {
 	Year   int    `json:"year"`
@@ -32,6 +13,18 @@ type DateTime struct {
 	Hour   int    `json:"hour"`
 	Minute int    `json:"min"`
 	Zone   string `json:"timezone"`
+}
+
+type Address struct {
+	Prefecture string `json:"prefecture"`
+	City       string `json:"city"`
+	District   string `json:"district"`
+	LandNumber string `json:"landNumber"`
+}
+
+type KeyValuePair struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type Cost struct {

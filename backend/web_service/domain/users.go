@@ -1,11 +1,14 @@
-package planner
+package domain
 
 type User struct {
 	Id       UserId `json:"id"`
 	Name     string `json:"name"`
+	JoinDate string `json:"joinDate"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
+
+type UserId string
 
 type UserService interface {
 	GetUser(id UserId) (User, error)
@@ -15,5 +18,3 @@ type UserService interface {
 	ReplaceUser(u User) (User, error)
 	DeleteUser(id UserId) error
 }
-
-type UserId string

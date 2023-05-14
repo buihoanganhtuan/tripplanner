@@ -1,16 +1,18 @@
-package planner
+package domain
 
 type Point struct {
 	Id         PointId                 `json:"id"`
 	TripId     TripId                  `json:"tripId"`
 	GeoPointId GeoPointId              `json:"geoPointId"`
-	Arrival    *PointArrivalConstraint `json:"arrivalConstraint,omitempty"`
-	Duration   Duration                `json:"duration"`
-	Before     *PointBeforeConstraint  `json:"beforeConstraint,omitempty"`
-	After      *PointAfterConstraint   `json:"afterConstraint,omitempty"`
-	First      bool                    `json:"first"`
-	Last       bool                    `json:"last"`
+	Arrival    *PointArrivalConstraint `json:"arrivalConstraint"`
+	Duration   Duration                `json:"durationConstraint"`
+	Before     *PointBeforeConstraint  `json:"beforeConstraint"`
+	After      *PointAfterConstraint   `json:"afterConstraint"`
+	First      bool                    `json:"isFirst"`
+	Last       bool                    `json:"isLast"`
 }
+
+type PointId string
 
 type PointService interface {
 	GetPoint(id PointId) (Point, error)
@@ -21,33 +23,17 @@ type PointService interface {
 	DeletePoint(id PointId) error
 }
 
-type PointId string
-
 type PointArrivalConstraint struct {
-	Before DateTime `json:"before"`
+	Before DateTime
 }
 
 type PointAfterConstraint struct {
-	Points []PointId `json:"points"`
+	Points []PointId
 }
 
 type PointBeforeConstraint struct {
 	Points []PointId `json:"points"`
 }
-
-type Address struct {
-	Prefecture string `json:"prefecture"`
-	City       string `json:"city"`
-	District   string `json:"district"`
-	LandNumber string `json:"landNumber"`
-}
-
-type KeyValuePair struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-type GeoPointId int64
 
 type GeoPoint struct {
 	Id      GeoPointId     `json:"id"`
@@ -57,3 +43,5 @@ type GeoPoint struct {
 	Address Address        `json:"address"`
 	Tags    []KeyValuePair `json:"tags,omitempty"`
 }
+
+type GeoPointId int64
