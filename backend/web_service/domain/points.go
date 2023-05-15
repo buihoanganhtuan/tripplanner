@@ -1,5 +1,11 @@
 package domain
 
+import "errors"
+
+const (
+	GeohashLen = 41
+)
+
 type Point struct {
 	Id         PointId                 `json:"id"`
 	TripId     TripId                  `json:"tripId"`
@@ -13,18 +19,6 @@ type Point struct {
 }
 
 type PointId string
-
-type PointService interface {
-	GetPoint(id PointId) (Point, error)
-	CreatePoint(p Point) (Point, error)
-	ListPoints() ([]Point, error)
-	UpdatePoint(p Point) (Point, error)
-	ReplacePoint(p Point) (Point, error)
-	DeletePoint(id PointId) error
-
-	GetGeoPoint(id GeoPointId) (GeoPoint, error)
-	GetNearbyPoints(id GeoPointId, dist float64) ([]GeoPoint, error)
-}
 
 type PointArrivalConstraint struct {
 	Before DateTime
@@ -40,6 +34,7 @@ type PointBeforeConstraint struct {
 
 type GeoPoint struct {
 	Id      GeoPointId     `json:"id"`
+	HashId  GeoHashId      `json:"hash"`
 	Lat     float64        `json:"lat"`
 	Lon     float64        `json:"lon"`
 	Name    *string        `json:"name,omitempty"`
@@ -48,3 +43,15 @@ type GeoPoint struct {
 }
 
 type GeoPointId string
+
+type GeoHashId string
+
+func (g *GeoPoint) validate() error {
+	if g.Lat == 0 || g.Lon == 0 {
+		return errors.New("invalid lat or lon")
+	}
+	if g.Address.Prefecture == "" || g.Address.City == "" || g.Address.District == "" {
+		return errors.New("invalid address")
+	}
+	return nil
+}

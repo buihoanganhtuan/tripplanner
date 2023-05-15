@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructure"
@@ -18,16 +20,6 @@ type Trip struct {
 	Budget        Cost      `json:"budgetLimit"`
 	PreferredMode string    `json:"preferredTransportMode"`
 	PlanResult    []Path    `json:"planResult"`
-}
-
-type TripService interface {
-	GetTrip(id TripId) (Trip, error)
-	CreateTrip(t Trip) (Trip, error)
-	ListTrips() ([]Trip, error)
-	UpdateTrip(t Trip) (Trip, error)
-	ReplaceTrip(t Trip) (Trip, error)
-	PlanTrip(id TripId) (Trip, error)
-	DeleteTrip(id TripId) error
 }
 
 type TripId string
@@ -145,7 +137,7 @@ func topologicalSort(points []Point, startTime DateTime, lim int) ([]pointOrder,
 	}
 
 	// Check for cycle
-	cycles := GetCycles(indeg, adj)
+	cycles := findCycles(indeg, adj)
 	if cycles != nil {
 		var ce []graphError
 		for _, c := range cycles {
@@ -225,7 +217,7 @@ func topologicalSort(points []Point, startTime DateTime, lim int) ([]pointOrder,
 	return res, nil
 }
 
-func GetCycles(indeg []int, adj [][]int) []cycle {
+func findCycles(indeg []int, adj [][]int) []cycle {
 	var indegCp []int
 	indegCp = append(indegCp, indeg...)
 
@@ -295,4 +287,108 @@ func GetCycles(indeg []int, adj [][]int) []cycle {
 		dfs(i)
 	}
 	return res
+}
+
+/*
+Get latitude and longitude of bottom left and top right of a square
+centered at current position and has side = 2*dist
+*/
+func (d *Domain) GetNearbyPoints(id GeoPointId, dist float64) ([]GeoPoint, error) {
+	geoPoint, err := d.repo.GetGeoPoint(id)
+	if err != nil {
+		return nil, err
+	}
+	lat := geoPoint.Lat
+	lon := geoPoint.Lon
+
+	latBits := GeohashLen / 2
+	lonBits := GeohashLen/2 + GeohashLen%2
+	numLats := int64(1) << int64(latBits)
+	numLons := int64(1) << int64(lonBits)
+	dlat := float64(180) / float64(numLats)
+	dlon := float64(360) / float64(numLons)
+
+	var lo, hi int
+	hi = int(lat / dlat)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		mlat := float64(-90) + float64(mid)*dlat
+		if haversine(lat, lon, mlat, lon) >= dist {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	blat := int64(lo)
+
+	lo = int(lat/dlat) + 1
+	hi = 1<<latBits - 1
+	for lo < hi {
+		mid := (lo + hi) / 2
+		mlat := float64(-90) + float64(mid)*dlat
+		if haversine(lat, lon, mlat, lon) >= dist {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	tlat := int64(lo)
+
+	lo = 0
+	hi = int(lon / dlon)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		mlon := float64(-180) + float64(mid)*dlon
+		if haversine(lat, lon, lat, mlon) >= dist {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	llon := int64(lo)
+
+	lo = int(lon/dlon) + 1
+	hi = 1<<lonBits - 1
+	for lo < hi {
+		mid := (lo + hi) / 2
+		mlon := float64(-180) + float64(mid)*dlon
+		if haversine(lat, lon, lat, mlon) >= dist {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	rlon := int64(lo)
+
+	var geoHashes []GeoHashId
+	for j := blat; j <= tlat; j++ {
+		for k := llon; k <= rlon; k++ {
+			geoHashes = append(geoHashes, GeoHashId(strconv.FormatInt(j+k<<latBits, 10)))
+		}
+	}
+
+	pp, err := d.repo.GeoGeoPointsWithHashes(geoHashes)
+	if err != nil {
+		return nil, err
+	}
+
+	var tmp []GeoPoint
+	for _, p := range pp {
+		if haversine(lat, lon, p.Lat, p.Lon) > dist {
+			continue
+		}
+		if err = p.validate(); err != nil {
+			return nil, err
+		}
+		tmp = append(tmp, p)
+	}
+
+	return tmp, nil
+}
+
+func haversine(lat1, lon1, lat2, lon2 float64) float64 {
+	r := 6378.137e3
+	a := math.Sin((lat2 - lat1) / 2)
+	b := math.Sin((lon2 - lon1) / 2)
+	return 2 * r * math.Asin(math.Sqrt(a*a+math.Cos(lat1)*math.Cos(lat2)*b*b))
 }

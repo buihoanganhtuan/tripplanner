@@ -8,11 +8,38 @@ real entities involved in the business, independent
 from any underlying technology.
 */
 
-var domain struct {
-	ps PointService
-	ts TripService
-	us UserService
+type Repository interface {
+	CreateTransaction() (TransactionId, error)
+	CommitTransaction(id TransactionId) error
+	RollbackTransaction(id TransactionId) error
+
+	GetUser(id UserId, tid TransactionId) (User, error)
+	CreateUser(u User, tid TransactionId) (User, error)
+	UpdateUser(u User, tid TransactionId) (User, error)
+	DeleteUser(id UserId, tid TransactionId) error
+	GetUserTrips(id UserId, tid TransactionId) ([]Trip, error)
+
+	GetGeoPoint(id GeoPointId) (GeoPoint, error)
+	GeoGeoPointsWithHashes(hs []GeoHashId) ([]GeoPoint, error)
+
+	AddTrip(t Trip, tid TransactionId) (Trip, error)
+	DeleteTrip(id TripId, tid TransactionId) error
 }
+
+type Api interface {
+	GetUser(id UserId) (User, error)
+	CreateUser(u User) (User, error)
+	UpdateUser(u User) (User, error)
+	ListUsers() ([]User, error)
+	DeleteUser(id UserId) error
+}
+
+type Domain struct {
+	repo Repository
+	api  Api
+}
+
+type TransactionId string
 
 type DateTime time.Time
 
