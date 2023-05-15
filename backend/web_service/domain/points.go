@@ -6,8 +6,8 @@ type Point struct {
 	GeoPointId GeoPointId              `json:"geoPointId"`
 	Arrival    *PointArrivalConstraint `json:"arrivalConstraint"`
 	Duration   Duration                `json:"durationConstraint"`
-	Before     *PointBeforeConstraint  `json:"beforeConstraint"`
-	After      *PointAfterConstraint   `json:"afterConstraint"`
+	Before     PointBeforeConstraint   `json:"beforeConstraint"`
+	After      PointAfterConstraint    `json:"afterConstraint"`
 	First      bool                    `json:"isFirst"`
 	Last       bool                    `json:"isLast"`
 }
@@ -21,6 +21,9 @@ type PointService interface {
 	UpdatePoint(p Point) (Point, error)
 	ReplacePoint(p Point) (Point, error)
 	DeletePoint(id PointId) error
+
+	GetGeoPoint(id GeoPointId) (GeoPoint, error)
+	GetNearbyPoints(id GeoPointId, dist float64) ([]GeoPoint, error)
 }
 
 type PointArrivalConstraint struct {
@@ -44,4 +47,4 @@ type GeoPoint struct {
 	Tags    []KeyValuePair `json:"tags,omitempty"`
 }
 
-type GeoPointId int64
+type GeoPointId string

@@ -1,18 +1,40 @@
 package domain
 
+import "time"
+
 /*
 A domain-level package Define domain types that model
 real entities involved in the business, independent
 from any underlying technology.
 */
 
-type DateTime struct {
-	Year   int    `json:"year"`
-	Month  int    `json:"month"`
-	Day    int    `json:"day"`
-	Hour   int    `json:"hour"`
-	Minute int    `json:"min"`
-	Zone   string `json:"timezone"`
+var domain struct {
+	ps PointService
+	ts TripService
+	us UserService
+}
+
+type DateTime time.Time
+
+func (dt DateTime) before(odt DateTime) bool {
+	return time.Time(dt).Before(time.Time(odt))
+}
+
+func (dt DateTime) after(odt DateTime) bool {
+	return time.Time(dt).After(time.Time(odt))
+}
+
+func (dt DateTime) add(d Duration) DateTime {
+	var dur time.Duration
+	switch d.Unit {
+	case "hour":
+		dur = time.Duration(d.Duration * int(time.Hour))
+	case "min":
+		dur = time.Duration(d.Duration * int(time.Minute))
+	default:
+		panic("unknown duration unit " + d.Unit)
+	}
+	return DateTime(time.Time(dt).Add(dur))
 }
 
 type Address struct {

@@ -8,14 +8,12 @@ import (
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/encoding/json"
 )
 
-// App sees external dependencies as interfaces, not implementations
+// Outbounds
 type Database interface {
-	GetUser(id domain.UserId) (User, error)
 }
 
-type Network interface {
-	SendUser(u string) error
-	ReceiveUser() string
+// Inbounds
+type Api interface {
 }
 
 // Not all external dependencies need to be interfaced. Only dependencies that
@@ -23,7 +21,8 @@ type Network interface {
 // will use REST, so json and http are two fixed dependencies that don't need to
 // be interfaced.
 var App struct {
-	Db Database
+	Db     Database
+	Server http.Server
 }
 
 // Application implementation of domain's types
