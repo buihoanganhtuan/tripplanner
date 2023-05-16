@@ -27,8 +27,8 @@ const (
 )
 
 type Rest struct {
-	Dom  domain.Domain
-	Serv http.Server
+	dom  domain.Domain
+	serv http.Server
 	ev   variables.EnvironmentVariableMap
 	pk   *rsa.PublicKey
 }
@@ -37,7 +37,7 @@ func (r *Rest) Init() {
 	// Load authentication server's public key for access token validation
 	r.ev.Fetch(publicKeyPathVar)
 	if r.ev.Err() != nil {
-		panic(fmt.Errorf("environment variable error: %v", Ev.Err()))
+		panic(fmt.Errorf("environment variable error: %v", r.ev.Err()))
 	}
 
 	b, err := os.ReadFile(r.ev.Var(publicKeyPathVar))

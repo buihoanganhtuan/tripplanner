@@ -15,7 +15,7 @@ func (d *Domain) GetUser(id UserId) (User, error) {
 	if err != nil {
 		return User{}, err
 	}
-	u, err := d.repo.GetUser(id, transId)
+	u, err := d.repo.User(id, transId)
 	if err != nil {
 		return User{}, err
 	}
@@ -51,7 +51,7 @@ func (d *Domain) DeleteUser(id UserId) error {
 
 	// Recursive delete all child resources
 	defer d.repo.RollbackTransaction(transId)
-	if _, err = d.repo.GetUser(id, transId); err != nil {
+	if _, err = d.repo.User(id, transId); err != nil {
 		return err
 	}
 	var userTrips []Trip
@@ -72,7 +72,7 @@ func (d *Domain) validateUser(u User) error {
 	if err != nil {
 		return err
 	}
-	if _, err = d.repo.GetUser(u.Id, transId); err != nil {
+	if _, err = d.repo.User(u.Id, transId); err != nil {
 		return err
 	}
 	return nil

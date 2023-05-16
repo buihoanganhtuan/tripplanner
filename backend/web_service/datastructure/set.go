@@ -56,6 +56,43 @@ func (s *Set[T]) Values() []T {
 	return res
 }
 
+func (s *Set[T]) Intersection(os *Set[T]) *Set[T] {
+	s1 := s
+	s2 := os
+	if s1.Size() > s2.Size() {
+		s1, s2 = s2, s1
+	}
+	var res Set[T]
+	for k := range s1.m {
+		if !s2.Contains(k) {
+			continue
+		}
+		res.Add(k)
+	}
+	return &res
+}
+
+func (s *Set[T]) Difference(os *Set[T]) *Set[T] {
+	var res Set[T]
+	for k := range s.m {
+		if os.Contains(k) {
+			continue
+		}
+		res.Add(k)
+	}
+	return &res
+}
+
+func (s *Set[T]) IsSubset(os *Set[T]) bool {
+	for k := range s.m {
+		if os.Contains(k) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func (s *Set[T]) ToString(fmtFn func(T) string, sep string) string {
 	tmp := make([]string, s.sz)
 	var i int
@@ -67,4 +104,12 @@ func (s *Set[T]) ToString(fmtFn func(T) string, sep string) string {
 
 func NewSet[T comparable]() *Set[T] {
 	return &Set[T]{}
+}
+
+func NewDefaultSet[T comparable](vals ...T) *Set[T] {
+	s := Set[T]{}
+	for _, v := range vals {
+		s.Add(v)
+	}
+	return &s
 }

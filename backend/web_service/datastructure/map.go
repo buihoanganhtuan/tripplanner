@@ -20,7 +20,11 @@ func (m *Map[K, V]) PutIfAbsent(key K, val V) V {
 }
 
 func (m *Map[K, V]) Get(key K) V {
-	return m.mp[key]
+	v, ok := m.mp[key]
+	if !ok {
+		panic("no such key")
+	}
+	return v
 }
 
 func (m *Map[K, V]) GetIfPresent(key K) (V, bool) {

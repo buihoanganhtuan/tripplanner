@@ -13,15 +13,21 @@ type Repository interface {
 	CommitTransaction(id TransactionId) error
 	RollbackTransaction(id TransactionId) error
 
-	GetUser(id UserId, tid TransactionId) (User, error)
+	User(id UserId, tid TransactionId) (User, error)
 	CreateUser(u User, tid TransactionId) (User, error)
 	UpdateUser(u User, tid TransactionId) (User, error)
 	DeleteUser(id UserId, tid TransactionId) error
 	GetUserTrips(id UserId, tid TransactionId) ([]Trip, error)
 
-	GetGeoPoint(id GeoPointId) (GeoPoint, error)
-	GeoGeoPointsWithHashes(hs []GeoHashId) ([]GeoPoint, error)
+	GeoPoint(id GeoPointId) (GeoPoint, error)
+	GeoPoints(ids []GeoPointId) ([]GeoPoint, error)
+	GeoPointsWithHashes(hs []GeoHashId) ([]GeoPoint, error)
 
+	Point(id PointId) (Point, error)
+	Points(ids []PointId) ([]Point, error)
+	PointsWithTrip(id TripId) ([]Point, error)
+
+	GetTrip(id TripId, tid TransactionId) (Trip, error)
 	AddTrip(t Trip, tid TransactionId) (Trip, error)
 	DeleteTrip(id TripId, tid TransactionId) error
 }
@@ -55,9 +61,9 @@ func (dt DateTime) add(d Duration) DateTime {
 	var dur time.Duration
 	switch d.Unit {
 	case "hour":
-		dur = time.Duration(d.Duration * int(time.Hour))
+		dur = time.Duration(d.Len * int(time.Hour))
 	case "min":
-		dur = time.Duration(d.Duration * int(time.Minute))
+		dur = time.Duration(d.Len * int(time.Minute))
 	default:
 		panic("unknown duration unit " + d.Unit)
 	}
@@ -82,8 +88,8 @@ type Cost struct {
 }
 
 type Duration struct {
-	Duration int    `json:"duration"`
-	Unit     string `json:"unit"`
+	Len  int    `json:"duration"`
+	Unit string `json:"unit"`
 }
 
 type Path struct {
