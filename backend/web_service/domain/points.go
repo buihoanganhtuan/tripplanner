@@ -46,7 +46,16 @@ type GeoPointId string
 
 type GeoHashId string
 
-func (g *GeoPoint) validate() error {
+type RouteId string
+
+type Route struct {
+	Id         RouteId        `json:"id"`
+	GeoPoints  []GeoPoint     `json:"nodes"`
+	Transports []string       `json:"transport"`
+	Tags       []KeyValuePair `json:"tags,omitempty"`
+}
+
+func validateGeoPoint(g GeoPoint) error {
 	if g.Lat == 0 || g.Lon == 0 {
 		return errors.New("invalid lat or lon")
 	}

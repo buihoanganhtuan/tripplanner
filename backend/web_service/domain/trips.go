@@ -109,13 +109,17 @@ func (d *Domain) PlanTrip(id TripId) (Trip, error) {
 
 	for _, tripCand := range tripCands {
 		var plan []Path
+		r := 2000.
+		if trip.Type == "anon" {
+			r = 500.
+		}
 		for i := 0; i < len(tripCand)-1; i++ {
 			j := idx.Get(tripCand[i])
 			k := idx.Get(tripCand[i+1])
 			path, can, err := d.findPaths(
 				denormPoint{Point: points[j], GeoPoint: geopoints[j]},
 				denormPoint{Point: points[k], GeoPoint: geopoints[k]},
-				trip.PreferredMode)
+				r, trip.PreferredMode)
 			if err != nil {
 				return Trip{}, err
 			}
@@ -128,19 +132,23 @@ func (d *Domain) PlanTrip(id TripId) (Trip, error) {
 	}
 }
 
-func (d *Domain) findPaths(p1 denormPoint, p2 denormPoint, transport string) (Path, bool, error) {
+func (d *Domain) findPaths(src denormPoint, dst denormPoint, dist float64, transport string) (Path, bool, error) {
+	gpp1, err := d.getNearbyPoints(src.GeoPoint, dist)
+	if err != nil {
+		return Path{}, false, err
+	}
+	gpp2, err := d.getNearbyPoints(dst.GeoPoint, dist)
+	if err != nil {
+		return Path{}, false, err
+	}
 
 }
 
 // This function finds the geo points whose distance
 // to the input point is not more than dist
-func (d *Domain) getNearbyPoints(id GeoPointId, dist float64) ([]GeoPoint, error) {
-	geoPoint, err := d.repo.GeoPoint(id)
-	if err != nil {
-		return nil, err
-	}
-	lat := geoPoint.Lat
-	lon := geoPoint.Lon
+func (d *Domain) getNearbyPoints(gp GeoPoint, dist float64) ([]GeoPoint, error) {
+	lat := gp.Lat
+	lon := gp.Lon
 
 	latBits := GeohashLen / 2
 	lonBits := GeohashLen/2 + GeohashLen%2
@@ -208,20 +216,20 @@ func (d *Domain) getNearbyPoints(id GeoPointId, dist float64) ([]GeoPoint, error
 		}
 	}
 
-	pp, err := d.repo.GeoPointsWithHashes(geoHashes)
+	gpp, err := d.repo.GeoPointsWithHashes(geoHashes)
 	if err != nil {
 		return nil, err
 	}
 
 	var tmp []GeoPoint
-	for _, p := range pp {
-		if haversine(lat, lon, p.Lat, p.Lon) > dist {
+	for _, gp := range gpp {
+		if haversine(lat, lon, gp.Lat, gp.Lon) > dist {
 			continue
 		}
-		if err = p.validate(); err != nil {
+		if err = validateGeoPoint(gp); err != nil {
 			return nil, err
 		}
-		tmp = append(tmp, p)
+		tmp = append(tmp, gp)
 	}
 
 	return tmp, nil

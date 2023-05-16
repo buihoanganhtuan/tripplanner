@@ -22,6 +22,7 @@ type Repository interface {
 	GeoPoint(id GeoPointId) (GeoPoint, error)
 	GeoPoints(ids []GeoPointId) ([]GeoPoint, error)
 	GeoPointsWithHashes(hs []GeoHashId) ([]GeoPoint, error)
+	RoutesViaGeoPoints(ids []GeoPointId) ([]Route, error)
 
 	Point(id PointId) (Point, error)
 	Points(ids []PointId) ([]Point, error)
@@ -30,6 +31,10 @@ type Repository interface {
 	GetTrip(id TripId, tid TransactionId) (Trip, error)
 	AddTrip(t Trip, tid TransactionId) (Trip, error)
 	DeleteTrip(id TripId, tid TransactionId) error
+}
+
+type TrafficRepo interface {
+	TrainLine(operator string, lineName string) (TrainLine, error)
 }
 
 type Api interface {
