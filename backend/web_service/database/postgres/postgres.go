@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/domain"
@@ -75,64 +74,4 @@ func (p *Postgres) GetUser(id string) (domain.User, error) {
 		Name:     name,
 		JoinDate: domain.DateTime(jd),
 	}, nil
-}
-
-func (p *Postgres) GeoGeoPointsWithHashes(hh []domain.GeoHashId) ([]domain.GeoPoint, error) {
-	var hs []string
-	for _, h := range hh {
-		hs = append(hs, string(h))
-	}
-	q := `SELECT Id, Lat, Lon, Name, Address, Tags FROM  WHERE HashId in (?)`
-	rows, err := p.webDb.Query(q, strings.Join(hs, ","))
-	if err != nil {
-		return nil, err
-	}
-
-	var res []domain.GeoPoint
-	for rows.Next() {
-		var id, name, addr, tags string
-		var lat, lon float64
-
-		var tokens []string
-		tokens = strings.Split(addr, " ")
-		var add domain.Address
-		if len(tokens) > 0 {
-			add.Prefecture = tokens[0]
-		}
-		if len(tokens) > 1 {
-			add.City = tokens[1]
-		}
-		if len(tokens) > 2 {
-			add.District = tokens[2]
-		}
-		if len(tokens) > 3 {
-			add.LandNumber = tokens[3]
-		}
-
-		// handletags
-		var t []domain.KeyValuePair
-		for _, kv := range strings.Split(tags, ";") {
-			tokens = strings.Split(kv, ":")
-			if len(tokens) != 2 {
-				continue
-			}
-			t = append(t, domain.KeyValuePair{
-				Key:   tokens[0],
-				Value: tokens[1],
-			})
-		}
-		res = append(res, domain.GeoPoint{
-			Id:      domain.GeoPointId(id),
-			Lat:     lat,
-			Lon:     lon,
-			Name:    &name,
-			Address: add,
-			Tags:    t,
-		})
-	}
-
-	if rows.Err() != nil {
-		return nil, rows.Err()
-	}
-	return res, nil
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructure"
@@ -65,18 +64,18 @@ func (ce cycleError) Error() string {
 }
 
 func (d *Domain) PlanTrip(id TripId) (Trip, error) {
-	transId, err := d.repo.CreateTransaction()
+	transId, err := d.Repo.CreateTransaction()
 	if err != nil {
 		return Trip{}, err
 	}
-	defer d.repo.RollbackTransaction(transId)
+	defer d.Repo.RollbackTransaction(transId)
 
-	trip, err := d.repo.GetTrip(id, transId)
+	trip, err := d.Repo.GetTrip(id, transId)
 	if err = validateTrip(trip); err != nil {
 		return Trip{}, err
 	}
 
-	points, err := d.repo.PointsWithTrip(id)
+	points, err := d.Repo.PointsWithTrip(id)
 	if err != nil {
 		return Trip{}, err
 	}
@@ -87,9 +86,9 @@ func (d *Domain) PlanTrip(id TripId) (Trip, error) {
 
 	var tripCands []pointOrder
 	if trip.Type == "anon" {
-		tripCands, err = topologicalSort(points, *trip.DateExpected, 3)
+		tripCands, err = d.topologicalSort(points, *trip.DateExpected, 3)
 	} else {
-		tripCands, err = topologicalSort(points, *trip.DateExpected, 10)
+		tripCands, err = d.topologicalSort(points, *trip.DateExpected, 10)
 	}
 
 	var gpids []GeoPointId
@@ -97,7 +96,7 @@ func (d *Domain) PlanTrip(id TripId) (Trip, error) {
 		gpids = append(gpids, p.GeoPointId)
 	}
 
-	geopoints, err := d.repo.GeoPoints(gpids)
+	geopoints, err := d.GeoRepo.GeoPoints(gpids)
 	if err != nil {
 		return Trip{}, err
 	}
@@ -133,11 +132,11 @@ func (d *Domain) PlanTrip(id TripId) (Trip, error) {
 }
 
 func (d *Domain) findPaths(src denormPoint, dst denormPoint, dist float64, transport string) (Path, bool, error) {
-	gpp1, err := d.getNearbyPoints(src.GeoPoint, dist)
+	gpp1, err := d.GeoRepo.TransitNodes(src.GeoPoint.Id, dist)
 	if err != nil {
 		return Path{}, false, err
 	}
-	gpp2, err := d.getNearbyPoints(dst.GeoPoint, dist)
+	gpp2, err := d.GeoRepo.TransitNodes(dst.GeoPoint.Id, dist)
 	if err != nil {
 		return Path{}, false, err
 	}
@@ -146,94 +145,6 @@ func (d *Domain) findPaths(src denormPoint, dst denormPoint, dist float64, trans
 
 // This function finds the geo points whose distance
 // to the input point is not more than dist
-func (d *Domain) getNearbyPoints(gp GeoPoint, dist float64) ([]GeoPoint, error) {
-	lat := gp.Lat
-	lon := gp.Lon
-
-	latBits := GeohashLen / 2
-	lonBits := GeohashLen/2 + GeohashLen%2
-	numLats := int64(1) << int64(latBits)
-	numLons := int64(1) << int64(lonBits)
-	dlat := float64(180) / float64(numLats)
-	dlon := float64(360) / float64(numLons)
-
-	var lo, hi int
-	hi = int(lat / dlat)
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		mlat := float64(-90) + float64(mid)*dlat
-		if haversine(lat, lon, mlat, lon) >= dist {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-	blat := int64(lo)
-
-	lo = int(lat/dlat) + 1
-	hi = 1<<latBits - 1
-	for lo < hi {
-		mid := (lo + hi) / 2
-		mlat := float64(-90) + float64(mid)*dlat
-		if haversine(lat, lon, mlat, lon) >= dist {
-			hi = mid
-		} else {
-			lo = mid + 1
-		}
-	}
-	tlat := int64(lo)
-
-	lo = 0
-	hi = int(lon / dlon)
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		mlon := float64(-180) + float64(mid)*dlon
-		if haversine(lat, lon, lat, mlon) >= dist {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-	llon := int64(lo)
-
-	lo = int(lon/dlon) + 1
-	hi = 1<<lonBits - 1
-	for lo < hi {
-		mid := (lo + hi) / 2
-		mlon := float64(-180) + float64(mid)*dlon
-		if haversine(lat, lon, lat, mlon) >= dist {
-			hi = mid
-		} else {
-			lo = mid + 1
-		}
-	}
-	rlon := int64(lo)
-
-	var geoHashes []GeoHashId
-	for j := blat; j <= tlat; j++ {
-		for k := llon; k <= rlon; k++ {
-			geoHashes = append(geoHashes, GeoHashId(strconv.FormatInt(j+k<<latBits, 10)))
-		}
-	}
-
-	gpp, err := d.repo.GeoPointsWithHashes(geoHashes)
-	if err != nil {
-		return nil, err
-	}
-
-	var tmp []GeoPoint
-	for _, gp := range gpp {
-		if haversine(lat, lon, gp.Lat, gp.Lon) > dist {
-			continue
-		}
-		if err = validateGeoPoint(gp); err != nil {
-			return nil, err
-		}
-		tmp = append(tmp, gp)
-	}
-
-	return tmp, nil
-}
 
 func validateTrip(t Trip) error {
 	if !types.Contains(t.Type) {
@@ -295,7 +206,7 @@ Extract possible solutions to a certain DAG ordering. As the number of solutions
 quite large, we terminate the search when the number of results found thus far exceed lim
 */
 
-func topologicalSort(points []Point, start DateTime, lim int) ([]pointOrder, error) {
+func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]pointOrder, error) {
 	intIds := datastructure.NewMap[PointId, int]()
 	pointIds := datastructure.NewMap[int, PointId]()
 
@@ -307,10 +218,12 @@ func topologicalSort(points []Point, start DateTime, lim int) ([]pointOrder, err
 		return ids
 	}
 
-	// convert PointId (string) to integer id
+	// convert PointId (string) to integer id. Also, get the geoId list for later use
+	var geoIds []GeoPointId
 	for i, p := range points {
 		intIds.Put(p.Id, i)
 		pointIds.Put(i, p.Id)
+		geoIds = append(geoIds, p.GeoPointId)
 	}
 
 	// construct the directed edges, prepare the in-degree count for each node
@@ -334,62 +247,98 @@ func topologicalSort(points []Point, start DateTime, lim int) ([]pointOrder, err
 		return nil, cycleError(ce)
 	}
 
+	type ArrangablePoint struct {
+		id         PointId
+		arrival    *PointArrivalConstraint
+		duration   Duration
+		lat        float64
+		lon        float64
+		distToPrev float64
+	}
+
+	var arPoints []ArrangablePoint
+	geoPoints, err := d.GeoRepo.GeoPoints(geoIds)
+	if err != nil {
+		return nil, err
+	}
+	for i := 0; i < len(points); i++ {
+		arPoints = append(arPoints, ArrangablePoint{
+			id:       points[i].Id,
+			arrival:  points[i].Arrival,
+			duration: points[i].Duration,
+			lat:      geoPoints[i].Lat,
+			lon:      geoPoints[i].Lon,
+		})
+	}
+
 	sortFn := func(i, j int) bool {
-		d1 := points[i].Arrival
-		d2 := points[j].Arrival
+		d1 := arPoints[i].arrival
+		d2 := arPoints[j].arrival
 		if d1 != nil && d2 != nil {
-			t1 := points[i].Arrival.Before
-			t2 := points[j].Arrival.Before
+			t1 := arPoints[i].arrival.Before
+			t2 := arPoints[j].arrival.Before
 			return t1.before(t2)
 		}
-		if d1 == nil && d2 == nil || d1 == nil && d2 != nil {
-			return false
+		if d1 == nil && d2 == nil {
+			return arPoints[i].distToPrev < arPoints[j].distToPrev
 		}
-		return true
+		return d2 == nil
 	}
 
 	var res []pointOrder
 	var dfs func([]int, []int, DateTime)
-	dfs = func(q, cur []int, t DateTime) {
+	dfs = func(queue, cur []int, t DateTime) {
 		if len(res) >= lim {
 			return
 		}
-		if len(q) == 0 {
+		if len(queue) == 0 {
 			res = append(res, pointOrder(mapback(cur)))
 			return
 		}
 
-		var qc []int
-		qc = append(qc, q...)
-		sort.SliceStable(qc, sortFn) // prioritize points with deadline first
+		var queueCopy []int
+		var orgDist []float64
+		defer func() {
+			for i := 0; i < len(queueCopy); i++ {
+				arPoints[queueCopy[i]].distToPrev = orgDist[i]
+			}
+		}()
+		queueCopy = append(queueCopy, queue...)
+		for i := 0; len(cur) > 0 && i < len(queueCopy); i++ {
+			orgDist = append(orgDist, arPoints[queueCopy[i]].distToPrev)
+			last := cur[len(cur)-1]
+			arPoints[queueCopy[i]].distToPrev = haversine(arPoints[last].lat, arPoints[last].lon, arPoints[queueCopy[i]].lat, arPoints[queueCopy[i]].lon)
+		}
 
-		if points[qc[0]].Arrival != nil && t.after(points[qc[0]].Arrival.Before) {
+		sort.SliceStable(queueCopy, sortFn) // prioritize points with deadline first
+
+		if points[queueCopy[0]].Arrival != nil && t.after(points[queueCopy[0]].Arrival.Before) {
 			return
 		}
 
 		// backtrack
-		for i := 0; i < len(qc); i++ {
-			tmp := qc[i]
+		for i := 0; i < len(queueCopy); i++ {
+			tmp := queueCopy[i]
 			cur = append(cur, tmp)
-			qc[i] = qc[len(qc)-1]
-			qc = qc[:len(qc)-1]
+			queueCopy[i] = queueCopy[len(queueCopy)-1]
+			queueCopy = queueCopy[:len(queueCopy)-1]
 			var added int
 			for _, j := range adj[tmp] {
 				indeg[j]--
 				if indeg[j] == 0 {
 					added++
-					qc = append(qc, j)
+					queueCopy = append(queueCopy, j)
 				}
 			}
 
-			dfs(qc, cur, t.add(points[qc[i]].Duration))
+			dfs(queueCopy, cur, t.add(points[queueCopy[i]].Duration))
 
 			for _, j := range adj[tmp] {
 				indeg[j]++
 			}
-			qc = qc[:len(qc)-added]
-			qc = append(qc, qc[i])
-			qc[i] = tmp
+			queueCopy = queueCopy[:len(queueCopy)-added]
+			queueCopy = append(queueCopy, queueCopy[i])
+			queueCopy[i] = tmp
 			cur = cur[:len(cur)-1]
 		}
 	}

@@ -34,7 +34,6 @@ type PointBeforeConstraint struct {
 
 type GeoPoint struct {
 	Id      GeoPointId     `json:"id"`
-	HashId  GeoHashId      `json:"hash"`
 	Lat     float64        `json:"lat"`
 	Lon     float64        `json:"lon"`
 	Name    *string        `json:"name,omitempty"`
@@ -43,8 +42,6 @@ type GeoPoint struct {
 }
 
 type GeoPointId string
-
-type GeoHashId string
 
 type RouteId string
 

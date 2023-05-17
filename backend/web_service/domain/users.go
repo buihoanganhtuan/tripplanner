@@ -11,11 +11,11 @@ type User struct {
 type UserId string
 
 func (d *Domain) GetUser(id UserId) (User, error) {
-	transId, err := d.repo.CreateTransaction()
+	transId, err := d.Repo.CreateTransaction()
 	if err != nil {
 		return User{}, err
 	}
-	u, err := d.repo.User(id, transId)
+	u, err := d.Repo.User(id, transId)
 	if err != nil {
 		return User{}, err
 	}
@@ -27,16 +27,16 @@ func (d *Domain) UpdateUser(u User) (User, error) {
 	if err = d.validateUser(u); err != nil {
 		return User{}, err
 	}
-	transId, err := d.repo.CreateTransaction()
-	defer d.repo.CommitTransaction(transId)
+	transId, err := d.Repo.CreateTransaction()
+	defer d.Repo.CommitTransaction(transId)
 	if err != nil {
 		return User{}, err
 	}
-	u, err = d.repo.UpdateUser(u, transId)
+	u, err = d.Repo.UpdateUser(u, transId)
 	if err != nil {
 		return User{}, err
 	}
-	err = d.repo.CommitTransaction(transId)
+	err = d.Repo.CommitTransaction(transId)
 	if err != nil {
 		return User{}, err
 	}
@@ -44,35 +44,35 @@ func (d *Domain) UpdateUser(u User) (User, error) {
 }
 
 func (d *Domain) DeleteUser(id UserId) error {
-	transId, err := d.repo.CreateTransaction()
+	transId, err := d.Repo.CreateTransaction()
 	if err != nil {
 		return err
 	}
 
 	// Recursive delete all child resources
-	defer d.repo.RollbackTransaction(transId)
-	if _, err = d.repo.User(id, transId); err != nil {
+	defer d.Repo.RollbackTransaction(transId)
+	if _, err = d.Repo.User(id, transId); err != nil {
 		return err
 	}
 	var userTrips []Trip
-	userTrips, err = d.repo.GetUserTrips(id, transId)
+	userTrips, err = d.Repo.GetUserTrips(id, transId)
 	if err != nil {
 		return err
 	}
 	for _, t := range userTrips {
-		if err = d.repo.DeleteTrip(t.Id, transId); err != nil {
+		if err = d.Repo.DeleteTrip(t.Id, transId); err != nil {
 			return err
 		}
 	}
-	return d.repo.CommitTransaction(transId)
+	return d.Repo.CommitTransaction(transId)
 }
 
 func (d *Domain) validateUser(u User) error {
-	transId, err := d.repo.CreateTransaction()
+	transId, err := d.Repo.CreateTransaction()
 	if err != nil {
 		return err
 	}
-	if _, err = d.repo.User(u.Id, transId); err != nil {
+	if _, err = d.Repo.User(u.Id, transId); err != nil {
 		return err
 	}
 	return nil

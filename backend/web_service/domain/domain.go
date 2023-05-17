@@ -19,11 +19,6 @@ type Repository interface {
 	DeleteUser(id UserId, tid TransactionId) error
 	GetUserTrips(id UserId, tid TransactionId) ([]Trip, error)
 
-	GeoPoint(id GeoPointId) (GeoPoint, error)
-	GeoPoints(ids []GeoPointId) ([]GeoPoint, error)
-	GeoPointsWithHashes(hs []GeoHashId) ([]GeoPoint, error)
-	RoutesViaGeoPoints(ids []GeoPointId) ([]Route, error)
-
 	Point(id PointId) (Point, error)
 	Points(ids []PointId) ([]Point, error)
 	PointsWithTrip(id TripId) ([]Point, error)
@@ -33,8 +28,13 @@ type Repository interface {
 	DeleteTrip(id TripId, tid TransactionId) error
 }
 
+type GeoRepo interface {
+	GeoPoint(id GeoPointId) (GeoPoint, error)
+	GeoPoints(ids []GeoPointId) ([]GeoPoint, error)
+	TransitNodes(id GeoPointId, dist float64) ([]GeoPoint, error)
+}
+
 type TrafficRepo interface {
-	TrainLine(operator string, lineName string) (TrainLine, error)
 }
 
 type Api interface {
@@ -46,8 +46,10 @@ type Api interface {
 }
 
 type Domain struct {
-	repo Repository
-	api  Api
+	Repo        Repository
+	GeoRepo     GeoRepo
+	TrafficRepo TrafficRepo
+	Api         Api
 }
 
 type TransactionId string
