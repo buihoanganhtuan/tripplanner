@@ -271,7 +271,7 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]poi
 		})
 	}
 
-	sortFn := func(i, j int) bool {
+	less := func(i, j int) bool {
 		d1 := arPoints[i].arrival
 		d2 := arPoints[j].arrival
 		if d1 != nil && d2 != nil {
@@ -310,7 +310,7 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]poi
 			arPoints[queueCopy[i]].distToPrev = haversine(arPoints[last].lat, arPoints[last].lon, arPoints[queueCopy[i]].lat, arPoints[queueCopy[i]].lon)
 		}
 
-		sort.SliceStable(queueCopy, sortFn) // prioritize points with deadline first
+		sort.SliceStable(queueCopy, less) // prioritize points with deadline first
 
 		if points[queueCopy[0]].Arrival != nil && t.after(points[queueCopy[0]].Arrival.Before) {
 			return
