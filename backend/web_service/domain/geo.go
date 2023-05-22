@@ -7,11 +7,14 @@ import (
 )
 
 const (
-	GeohashLen = 41
+	GeohashLen            = 41
+	edgeDiffWeight        = 190
+	contractionCostWeight = 1
 )
 
 type GeoPoint struct {
 	Id      GeoPointId     `json:"id"`
+	Level   int            `json:"level"`
 	Lat     float64        `json:"lat"`
 	Lon     float64        `json:"lon"`
 	Name    *string        `json:"name,omitempty"`
@@ -38,15 +41,16 @@ type RoutePoint struct {
 type GeoEdgeId int64
 
 type GeoEdge struct {
-	Id        GeoEdgeId
-	EndPoint1 GeoPointId
-	EndPoint2 GeoPointId
-	Cost      []EdgeCost
-}
-
-type EdgeCost struct {
-	Transport string
-	Value     float64
+	Id            GeoEdgeId
+	Level         int
+	EndPoint1     GeoPointId
+	EndPoint2     GeoPointId
+	OriginalEdges int
+	Transport     string
+	Cost          float64
+	LeftChild     GeoEdgeId
+	RightChild    GeoEdgeId
+	Parent        GeoEdgeId
 }
 
 type vertexByImportance struct {
@@ -71,91 +75,113 @@ func (d *Domain) importanceUpdate(transport string) error {
 	// Do local search to get initial ordering
 	importPq := ds.NewPriorityQueue[vertexByImportance, GeoPointId]()
 	for _, curVertex := range vertices {
-		fwdEdges, err := d.GeoRepo.EdgesToHigherImportance(curVertex.Id)
-		if err != nil {
-			return err
-		}
-		revEdges, err := d.GeoRepo.EdgesFromHigherImportance(curVertex.Id)
-		if err != nil {
-			return err
-		}
 
-		var targets []vertexByDistance
-		var ma float64
-		for _, e := range fwdEdges {
-			for _, c := range e.Cost {
-				if c.Transport != transport {
-					continue
-				}
-				targets = append(targets, vertexByDistance{id: e.EndPoint2, dist: c.Value})
-				ma = math.Max(ma, c.Value)
-				break
-			}
-		}
-
-		var sources []vertexByDistance
-		for _, e := range revEdges {
-			for _, c := range e.Cost {
-				if c.Transport != transport {
-					continue
-				}
-				sources = append(sources, vertexByDistance{id: e.EndPoint1, dist: c.Value})
-				break
-			}
-		}
-
-		for _, src := range sources {
-			limit := ma + src.dist
-			pq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
-			dist := ds.NewMap[GeoPointId, float64]()
-			pq.Push(vertexByDistance{id: src.id, dist: 0})
-			for !pq.Empty() {
-				v := pq.Poll()
-				// optimization 1: early termination
-				if v.dist > limit {
-					break
-				}
-				dist.Put(v.id, v.dist)
-				edges, err := d.GeoRepo.EdgesToHigherImportance(v.id)
-				if err != nil {
-					return err
-				}
-				for _, e := range edges {
-					if e.EndPoint2 == curVertex.Id {
-						continue
-					}
-					for _, c := range e.Cost {
-						if c.Transport != transport {
-							continue
-						}
-						newDist := v.dist + c.Value
-						if dist.Exist(e.EndPoint2) && dist.Get(e.EndPoint2) <= newDist {
-							continue
-						}
-						dist.Put(e.EndPoint2, newDist)
-						pq.Push(vertexByDistance{id: e.EndPoint2, dist: newDist})
-					}
-				}
-			}
-			// find the target of the shortcut from src
-			var diff int
-			for _, tgt := range targets {
-				if dist.Exist(tgt.id) && src.dist+tgt.dist >= dist.Get(tgt.id) {
-					continue
-				}
-				diff++
-			}
-			importPq.Push(vertexByImportance{id: curVertex.Id, importance: float64(diff - len(sources) - len(targets))})
-		}
 	}
 
-	// start contraction
+	// importPq now contains initially ordered vertices. Contraction starts from here
 	for !importPq.Empty() {
 		curVertex := importPq.Peek()
-		// do local search
+		// lazy update
 
 	}
 
+}
+
+type Importance struct {
+	edgeDiff      int
+	contractCost  int
+	originalEdges int
+}
+
+func (d *Domain) contract(id GeoPointId, transport string, level int, simulated bool) (Importance, error) {
+	fEdges, err := d.GeoRepo.EdgesToUpper(id, transport)
+	if err != nil {
+		return Importance{}, err
+	}
+	rEdges, err := d.GeoRepo.EdgesFromUpper(id, transport)
+	if err != nil {
+		return Importance{}, err
+	}
+
+	var ma float64
+	for _, e := range fEdges {
+		ma = math.Max(ma, e.Cost)
+		break
+	}
+
+	var contrCost, edgeDiff int
+	var newShortcuts []GeoEdge
+	for _, re := range rEdges {
+		src := re.EndPoint1
+		pq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
+		dist := ds.NewMap[GeoPointId, float64]()
+		pq.Push(vertexByDistance{
+			id:   src,
+			dist: 0})
+		for !pq.Empty() {
+			v := pq.Poll()
+			// optimization 1: early termination
+			if v.dist > ma+re.Cost {
+				break
+			}
+			dist.Put(v.id, v.dist)
+			contrCost++
+			edges, err := d.GeoRepo.EdgesToUpper(v.id, transport)
+			if err != nil {
+				return Importance{}, err
+			}
+			for _, e := range edges {
+				if e.EndPoint2 == id {
+					// ignore current node
+					continue
+				}
+				newDist := v.dist + e.Cost
+				if dist.Exist(e.EndPoint2) && dist.Get(e.EndPoint2) <= newDist {
+					continue
+				}
+				dist.Put(e.EndPoint2, newDist)
+				pq.Push(vertexByDistance{
+					id:   e.EndPoint2,
+					dist: newDist})
+			}
+		}
+		// find the target of the shortcut from src
+		for _, fe := range fEdges {
+			tgt := fe.EndPoint2
+			if dist.Exist(tgt) && re.Cost+fe.Cost >= dist.Get(tgt) {
+				continue
+			}
+			edgeDiff++
+			if simulated {
+				continue
+			}
+			sid, err := d.GeoRepo.NewEdgeId(transport)
+			if err != nil {
+				return Importance{}, err
+			}
+			newShortcuts = append(newShortcuts, GeoEdge{
+				Id:            sid,
+				Level:         level,
+				EndPoint1:     src,
+				EndPoint2:     tgt,
+				Transport:     transport,
+				Cost:          re.Cost + fe.Cost,
+				OriginalEdges: fe.OriginalEdges + re.OriginalEdges,
+				LeftChild:     fe.Id,
+				RightChild:    re.Id,
+			})
+		}
+	}
+
+	for _, sc := range newShortcuts {
+		// create and stores the new shortcuts. Update parent field of child shortcuts also
+
+	}
+
+	return Importance{
+		edgeDiff:     edgeDiff,
+		contractCost: contrCost,
+	}, nil
 }
 
 // Internal type used for shortest path finding
@@ -231,25 +257,24 @@ func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) 
 		var edges []GeoEdge
 		var err error
 		if i%2 == 0 {
-			edges, err = d.GeoRepo.EdgesToHigherImportance(v.id)
+			edges, err = d.GeoRepo.EdgesToUpper(v.id, transport)
 		} else {
-			edges, err = d.GeoRepo.EdgesFromHigherImportance(v.id)
+			edges, err = d.GeoRepo.EdgesFromUpper(v.id, transport)
 		}
 
 		if err != nil {
 			return nil, err
 		}
 		for _, e := range edges {
-			for _, c := range e.Cost {
-				if c.Transport != transport {
-					continue
-				}
-				if !v1.Contains(e.EndPoint2) && (!d1.Exist(e.EndPoint2) || d1.Get(e.EndPoint2) > v.dist+c.Value) {
-					d1.Put(e.EndPoint2, v.dist+c.Value)
-					p1.Put(e.EndPoint2, v.id)
-					pq1.Push(vertexByDistance{id: e.EndPoint2, dist: v.dist + c.Value})
-				}
+			newDist := v.dist + e.Cost
+			if v1.Contains(e.EndPoint2) || d1.Exist(e.EndPoint2) && d1.Get(e.EndPoint2) >= newDist {
+				continue
 			}
+			d1.Put(e.EndPoint2, newDist)
+			p1.Put(e.EndPoint2, v.id)
+			pq1.Push(vertexByDistance{
+				id:   e.EndPoint2,
+				dist: newDist})
 		}
 	}
 	if len(commonVertex) == 0 {
@@ -276,7 +301,7 @@ func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) 
 		// resolve shortcut
 		var unpackedPath []GeoPointId
 		for i := 0; i < len(path)-1; i++ {
-			unpack, err := d.GeoRepo.ResolveEdge(path[i], path[i+1])
+			unpack, err := d.GeoRepo.ResolveEdge(path[i], path[i+1], transport)
 			if err != nil {
 				return nil, err
 			}

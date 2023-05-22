@@ -35,10 +35,10 @@ type GeoRepo interface {
 	// methods relevant to transit nodes
 	TransitNodes(id GeoPointId, dist float64) ([]GeoPoint, error)
 	ListTransitNodes() ([]GeoPoint, error)
-	Edges(id GeoPointId) ([]GeoEdge, error)
-	EdgesToHigherImportance(id GeoPointId) ([]GeoEdge, error)
-	EdgesFromHigherImportance(id GeoPointId) ([]GeoEdge, error)
-	ResolveEdge(id1 GeoPointId, id2 GeoPointId) ([]GeoPointId, error)
+	NewEdgeId(transport string) (GeoEdgeId, error)
+	EdgesToUpper(id GeoPointId, transport string) ([]GeoEdge, error)
+	EdgesFromUpper(id GeoPointId, transport string) ([]GeoEdge, error)
+	ResolveEdge(id1 GeoPointId, id2 GeoPointId, transport string) ([]GeoPointId, error)
 }
 
 type TrafficRepo interface {
