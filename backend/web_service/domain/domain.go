@@ -8,7 +8,7 @@ real entities involved in the business, independent
 from any underlying technology.
 */
 
-type Repository interface {
+type Repo interface {
 	CreateTransaction() (TransactionId, error)
 	CommitTransaction(id TransactionId) error
 	RollbackTransaction(id TransactionId) error
@@ -53,7 +53,7 @@ type Api interface {
 }
 
 type Domain struct {
-	Repo        Repository
+	Repo        Repo
 	GeoRepo     GeoRepo
 	TrafficRepo TrafficRepo
 	Api         Api

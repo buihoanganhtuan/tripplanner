@@ -3,5 +3,7 @@ package odpt
 import "net/http"
 
 type odpt struct {
-	cl *http.Client
+	Cl *http.Client
+
+	ApiKey string
 }

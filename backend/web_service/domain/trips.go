@@ -247,7 +247,7 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]poi
 		return nil, cycleError(ce)
 	}
 
-	type ArrangablePoint struct {
+	type OrderedPoint struct {
 		id         PointId
 		arrival    *PointArrivalConstraint
 		duration   Duration
@@ -256,13 +256,13 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]poi
 		distToPrev float64
 	}
 
-	var arPoints []ArrangablePoint
+	var arPoints []OrderedPoint
 	geoPoints, err := d.GeoRepo.GeoPoints(geoIds)
 	if err != nil {
 		return nil, err
 	}
 	for i := 0; i < len(points); i++ {
-		arPoints = append(arPoints, ArrangablePoint{
+		arPoints = append(arPoints, OrderedPoint{
 			id:       points[i].Id,
 			arrival:  points[i].Arrival,
 			duration: points[i].Duration,
