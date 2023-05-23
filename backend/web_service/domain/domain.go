@@ -39,7 +39,8 @@ type GeoRepo interface {
 	EdgesFrom(id GeoPointId, transport string) ([]GeoEdge, error)
 	EdgesToUpper(id GeoPointId, transport string) ([]GeoEdge, error)
 	EdgesFromUpper(id GeoPointId, transport string) ([]GeoEdge, error)
-	ResolveEdge(id1 GeoPointId, id2 GeoPointId, transport string) ([]GeoPointId, error)
+	ResolveEdge(id GeoEdgeId, transport string) ([]GeoEdge, error)
+	AncestorEdges(id GeoEdge, transport string) ([]GeoEdge, error)
 	PutShortcuts(edge []GeoEdge, transport string) error
 	PutNodeLevel(id GeoPointId, level int, transport string) error
 }

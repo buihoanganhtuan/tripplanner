@@ -52,6 +52,7 @@ type GeoEdge struct {
 	Cost          float64
 	LeftChild     *GeoEdgeId
 	RightChild    *GeoEdgeId
+	MiddleVertex  *GeoPointId
 }
 
 type vertexByImportance struct {
@@ -105,8 +106,8 @@ func (d *Domain) rebuildHierarchies(transport string) error {
 		}
 
 		if lazyCount >= lazyThreshold {
-			fmt.Println("too many lazy updates. Rebuilding the whole remaining queue...")
 			then := time.Now()
+			fmt.Printf("[%v] too many lazy updates. Rebuilding the whole remaining queue... \n", then.Format(time.Stamp))
 			newPq := ds.NewPriorityQueue[vertexByImportance, GeoPointId]()
 			for !importPq.Empty() {
 				v := importPq.Poll()
@@ -117,7 +118,9 @@ func (d *Domain) rebuildHierarchies(transport string) error {
 				newPq.Push(vertexByImportance{v.id, calcWeight(imp)})
 			}
 			importPq = newPq
-			fmt.Printf("finish rebuilding queue. Took %v seconds \n", int(time.Now().Sub(then).Seconds()))
+			lazyCount = 0
+			now := time.Now()
+			fmt.Printf("[%v] finish rebuilding queue. Took %v seconds \n", now.Format(time.Stamp), int(now.Sub(then).Seconds()))
 		}
 
 		curVertex := importPq.Peek()
@@ -125,7 +128,8 @@ func (d *Domain) rebuildHierarchies(transport string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("finish processing level %v, took %v seconds \n", level, int(time.Now().Sub(then).Seconds()))
+		now := time.Now()
+		fmt.Printf("[%v] finish processing level %v, took %v seconds \n", now.Format(time.Stamp), level, int(time.Now().Sub(then).Seconds()))
 	}
 	return nil
 }
@@ -170,6 +174,7 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *
 		pq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
 		dist := ds.NewMap[GeoPointId, float64]()
 		pq.Push(vertexByDistance{src, 0})
+		dist.Put(src, 0)
 		for tgtCount := 0; !pq.Empty(); contractCost++ {
 			v := pq.Poll()
 			if v.dist > ma+re.Cost {
@@ -213,6 +218,7 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *
 				OriginalEdges: fe.OriginalEdges + re.OriginalEdges,
 				LeftChild:     &fe.Id,
 				RightChild:    &re.Id,
+				MiddleVertex:  &id,
 			})
 			orgEdgeCount += fe.OriginalEdges + re.OriginalEdges
 		}
@@ -247,6 +253,12 @@ func calcWeight(imp Importance) float64 {
 		imp.originalEdges*originEdgesWeight)
 }
 
+// Function to update the shortcuts when an edge changes. Note that this update
+// is temporarily only, as we'll be occasionally rebuilding the graph
+func (d *Domain) updateEdge(edge GeoEdge, transport string) error {
+	edges, err := d.GeoRepo.AncestorEdges(edge.Id, transport)
+}
+
 // Internal type used for shortest path finding
 type vertexByDistance struct {
 	id   GeoPointId
@@ -261,16 +273,16 @@ func (v vertexByDistance) Id() GeoPointId {
 	return v.id
 }
 
-func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) ([][]GeoPointId, error) {
+func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) ([][]GeoEdge, error) {
 	// bidirectional dijkstra
 	fDist := ds.NewMap[GeoPointId, float64]()
-	fPar := ds.NewMap[GeoPointId, GeoPointId]()
+	fPar := ds.NewMap[GeoPointId, GeoEdge]()
 	fVis := ds.NewSet[GeoPointId]()
 	fPq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
 	fPq.Push(vertexByDistance{src, 0})
 
 	rDist := ds.NewMap[GeoPointId, float64]()
-	rPar := ds.NewMap[GeoPointId, GeoPointId]()
+	rPar := ds.NewMap[GeoPointId, GeoEdge]()
 	rVis := ds.NewSet[GeoPointId]()
 	rPq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
 	rPq.Push(vertexByDistance{dst, 0})
@@ -328,7 +340,7 @@ func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) 
 				continue
 			}
 			d1.Put(e.EndPoint2, newDist)
-			p1.Put(e.EndPoint2, v.id)
+			p1.Put(e.EndPoint2, e)
 			pq1.Push(vertexByDistance{e.EndPoint2, newDist})
 		}
 	}
@@ -337,26 +349,26 @@ func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) 
 	}
 
 	// path
-	var paths [][]GeoPointId
-	for _, cv := range sharedVertices {
-		var path []GeoPointId
-		for id := cv; id != src; {
-			parent := fPar.Get(id)
-			path = append(path, parent)
-			id = parent
+	var paths [][]GeoEdge
+	for _, v := range sharedVertices {
+		var path []GeoEdge
+		for id := v; id != src; {
+			inEdge := fPar.Get(id)
+			path = append(path, inEdge)
+			id = inEdge.EndPoint1
 		}
 		reverse(path)
 
-		for id := cv; id != src; {
-			parent := rPar.Get(id)
-			path = append(path, parent)
-			id = parent
+		for id := v; id != dst; {
+			outEdge := rPar.Get(id)
+			path = append(path, outEdge)
+			id = outEdge.EndPoint2
 		}
 
 		// resolve shortcut
-		var unpackedPath []GeoPointId
-		for i := 0; i < len(path)-1; i++ {
-			unpack, err := d.GeoRepo.ResolveEdge(path[i], path[i+1], transport)
+		var unpackedPath []GeoEdge
+		for i := 0; i < len(path); i++ {
+			unpack, err := d.GeoRepo.ResolveEdge(path[i].Id, transport)
 			if err != nil {
 				return nil, err
 			}
