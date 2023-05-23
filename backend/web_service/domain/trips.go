@@ -206,7 +206,7 @@ Extract possible solutions to a certain DAG ordering. As the number of solutions
 quite large, we terminate the search when the number of results found thus far exceed lim
 */
 
-func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]pointOrder, error) {
+func (d *Domain) topologicalSort(points []Point, start DateTime, lim int, transport string) ([]pointOrder, error) {
 	intIds := datastructure.NewMap[PointId, int]()
 	pointIds := datastructure.NewMap[int, PointId]()
 
@@ -249,6 +249,7 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]poi
 
 	type OrderedPoint struct {
 		id         PointId
+		geoId      GeoPointId
 		arrival    *PointArrivalConstraint
 		duration   Duration
 		lat        float64
@@ -256,14 +257,15 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]poi
 		distToPrev float64
 	}
 
-	var arPoints []OrderedPoint
+	var ordPoints []OrderedPoint
 	geoPoints, err := d.GeoRepo.GeoPoints(geoIds)
 	if err != nil {
 		return nil, err
 	}
 	for i := 0; i < len(points); i++ {
-		arPoints = append(arPoints, OrderedPoint{
+		ordPoints = append(ordPoints, OrderedPoint{
 			id:       points[i].Id,
+			geoId:    points[i].GeoPointId,
 			arrival:  points[i].Arrival,
 			duration: points[i].Duration,
 			lat:      geoPoints[i].Lat,
@@ -272,15 +274,15 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]poi
 	}
 
 	less := func(i, j int) bool {
-		d1 := arPoints[i].arrival
-		d2 := arPoints[j].arrival
+		d1 := ordPoints[i].arrival
+		d2 := ordPoints[j].arrival
 		if d1 != nil && d2 != nil {
-			t1 := arPoints[i].arrival.Before
-			t2 := arPoints[j].arrival.Before
+			t1 := ordPoints[i].arrival.Before
+			t2 := ordPoints[j].arrival.Before
 			return t1.before(t2)
 		}
 		if d1 == nil && d2 == nil {
-			return arPoints[i].distToPrev < arPoints[j].distToPrev
+			return ordPoints[i].distToPrev < ordPoints[j].distToPrev
 		}
 		return d2 == nil
 	}
@@ -300,14 +302,15 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int) ([]poi
 		var orgDist []float64
 		defer func() {
 			for i := 0; i < len(queueCopy); i++ {
-				arPoints[queueCopy[i]].distToPrev = orgDist[i]
+				ordPoints[queueCopy[i]].distToPrev = orgDist[i]
 			}
 		}()
 		queueCopy = append(queueCopy, queue...)
 		for i := 0; len(cur) > 0 && i < len(queueCopy); i++ {
-			orgDist = append(orgDist, arPoints[queueCopy[i]].distToPrev)
+			orgDist = append(orgDist, ordPoints[queueCopy[i]].distToPrev)
 			last := cur[len(cur)-1]
-			arPoints[queueCopy[i]].distToPrev = haversine(arPoints[last].lat, arPoints[last].lon, arPoints[queueCopy[i]].lat, arPoints[queueCopy[i]].lon)
+			// d.shortestPath(ordPoints[last].geoId, ordPoints[queueCopy[i]].geoId, transport)
+			ordPoints[queueCopy[i]].distToPrev = haversine(ordPoints[last].lat, ordPoints[last].lon, ordPoints[queueCopy[i]].lat, ordPoints[queueCopy[i]].lon)
 		}
 
 		sort.SliceStable(queueCopy, less) // prioritize points with deadline first

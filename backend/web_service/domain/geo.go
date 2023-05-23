@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"fmt"
 	"math"
+	"time"
 
 	ds "github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructure"
 )
@@ -10,6 +12,7 @@ const (
 	GeohashLen            = 41
 	edgeDiffWeight        = 190
 	contractionCostWeight = 1
+	originEdgesWeight     = 600
 )
 
 type GeoPoint struct {
@@ -42,15 +45,13 @@ type GeoEdgeId int64
 
 type GeoEdge struct {
 	Id            GeoEdgeId
-	Level         int
 	EndPoint1     GeoPointId
 	EndPoint2     GeoPointId
 	OriginalEdges int
 	Transport     string
 	Cost          float64
-	LeftChild     GeoEdgeId
-	RightChild    GeoEdgeId
-	Parent        GeoEdgeId
+	LeftChild     *GeoEdgeId
+	RightChild    *GeoEdgeId
 }
 
 type vertexByImportance struct {
@@ -66,7 +67,7 @@ func (v vertexByImportance) Id() GeoPointId {
 	return v.id
 }
 
-func (d *Domain) importanceUpdate(transport string) error {
+func (d *Domain) rebuildHierarchies(transport string) error {
 	vertices, err := d.GeoRepo.ListTransitNodes()
 	if err != nil {
 		return err
@@ -74,17 +75,59 @@ func (d *Domain) importanceUpdate(transport string) error {
 
 	// Do local search to get initial ordering
 	importPq := ds.NewPriorityQueue[vertexByImportance, GeoPointId]()
-	for _, curVertex := range vertices {
-
+	for _, v := range vertices {
+		imp, err := d.contract(v.Id, transport, 0, importPq, true)
+		if err != nil {
+			return err
+		}
+		importPq.Push(vertexByImportance{v.Id, calcWeight(imp)})
 	}
 
-	// importPq now contains initially ordered vertices. Contraction starts from here
-	for !importPq.Empty() {
+	// importPq now contains initially ordered vertices. Contraction process starts from here
+	var level int
+	for lazyCount := 0; !importPq.Empty(); level++ {
+		fmt.Printf("start processing level %v \n", level)
+		then := time.Now()
+		lazyThreshold := 1000
+		for lazyCount < lazyThreshold {
+			curVertex := importPq.Peek()
+			imp, err := d.contract(curVertex.id, transport, level, importPq, true)
+			if err != nil {
+				return err
+			}
+			importPq.Push(vertexByImportance{curVertex.id, calcWeight(imp)})
+			nextVertex := importPq.Peek()
+			if curVertex.id == nextVertex.id {
+				// current vertex is truly the least important
+				break
+			}
+			lazyCount++
+		}
+
+		if lazyCount >= lazyThreshold {
+			fmt.Println("too many lazy updates. Rebuilding the whole remaining queue...")
+			then := time.Now()
+			newPq := ds.NewPriorityQueue[vertexByImportance, GeoPointId]()
+			for !importPq.Empty() {
+				v := importPq.Poll()
+				imp, err := d.contract(v.id, transport, level, importPq, true)
+				if err != nil {
+					return err
+				}
+				newPq.Push(vertexByImportance{v.id, calcWeight(imp)})
+			}
+			importPq = newPq
+			fmt.Printf("finish rebuilding queue. Took %v seconds \n", int(time.Now().Sub(then).Seconds()))
+		}
+
 		curVertex := importPq.Peek()
-		// lazy update
-
+		_, err := d.contract(curVertex.id, transport, level, importPq, false)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("finish processing level %v, took %v seconds \n", level, int(time.Now().Sub(then).Seconds()))
 	}
-
+	return nil
 }
 
 type Importance struct {
@@ -93,46 +136,58 @@ type Importance struct {
 	originalEdges int
 }
 
-func (d *Domain) contract(id GeoPointId, transport string, level int, simulated bool) (Importance, error) {
-	fEdges, err := d.GeoRepo.EdgesToUpper(id, transport)
+func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *ds.PriorityQueue[vertexByImportance, GeoPointId], simulated bool) (Importance, error) {
+	fEdges, err := d.GeoRepo.EdgesFrom(id, transport)
 	if err != nil {
 		return Importance{}, err
 	}
-	rEdges, err := d.GeoRepo.EdgesFromUpper(id, transport)
+	rEdges, err := d.GeoRepo.EdgesTo(id, transport)
 	if err != nil {
 		return Importance{}, err
 	}
 
 	var ma float64
-	for _, e := range fEdges {
-		ma = math.Max(ma, e.Cost)
+	targets := ds.NewSet[GeoPointId]()
+	neighbors := ds.NewSet[GeoPointId]()
+	for _, fe := range fEdges {
+		if !importPq.Exist(fe.EndPoint2) {
+			continue
+		}
+		neighbors.Add(fe.EndPoint2)
+		targets.Add(fe.EndPoint2)
+		ma = math.Max(ma, fe.Cost)
 		break
 	}
 
-	var contrCost, edgeDiff int
 	var newShortcuts []GeoEdge
+	var contractCost, orgEdgeCount int
 	for _, re := range rEdges {
+		if !importPq.Exist(re.EndPoint1) {
+			continue
+		}
+		neighbors.Add(re.EndPoint1)
 		src := re.EndPoint1
 		pq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
 		dist := ds.NewMap[GeoPointId, float64]()
-		pq.Push(vertexByDistance{
-			id:   src,
-			dist: 0})
-		for !pq.Empty() {
+		pq.Push(vertexByDistance{src, 0})
+		for tgtCount := 0; !pq.Empty(); contractCost++ {
 			v := pq.Poll()
-			// optimization 1: early termination
 			if v.dist > ma+re.Cost {
 				break
 			}
-			dist.Put(v.id, v.dist)
-			contrCost++
-			edges, err := d.GeoRepo.EdgesToUpper(v.id, transport)
+			if targets.Contains(v.id) {
+				tgtCount++
+			}
+			if tgtCount == targets.Size() {
+				break
+			}
+			edges, err := d.GeoRepo.EdgesFrom(v.id, transport)
 			if err != nil {
 				return Importance{}, err
 			}
 			for _, e := range edges {
-				if e.EndPoint2 == id {
-					// ignore current node
+				if e.EndPoint2 == id || !importPq.Exist(e.EndPoint2) {
+					// ignore if this neighbor is the current vertex or belong to a lower level, i.e., already contracted
 					continue
 				}
 				newDist := v.dist + e.Cost
@@ -140,48 +195,56 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, simulated 
 					continue
 				}
 				dist.Put(e.EndPoint2, newDist)
-				pq.Push(vertexByDistance{
-					id:   e.EndPoint2,
-					dist: newDist})
+				pq.Push(vertexByDistance{e.EndPoint2, newDist})
 			}
 		}
-		// find the target of the shortcut from src
+		// establish shortcut(s) originating from src
 		for _, fe := range fEdges {
 			tgt := fe.EndPoint2
 			if dist.Exist(tgt) && re.Cost+fe.Cost >= dist.Get(tgt) {
 				continue
 			}
-			edgeDiff++
-			if simulated {
-				continue
-			}
-			sid, err := d.GeoRepo.NewEdgeId(transport)
-			if err != nil {
-				return Importance{}, err
-			}
 			newShortcuts = append(newShortcuts, GeoEdge{
-				Id:            sid,
-				Level:         level,
+				Id:            -1,
 				EndPoint1:     src,
 				EndPoint2:     tgt,
 				Transport:     transport,
 				Cost:          re.Cost + fe.Cost,
 				OriginalEdges: fe.OriginalEdges + re.OriginalEdges,
-				LeftChild:     fe.Id,
-				RightChild:    re.Id,
+				LeftChild:     &fe.Id,
+				RightChild:    &re.Id,
 			})
+			orgEdgeCount += fe.OriginalEdges + re.OriginalEdges
 		}
 	}
 
-	for _, sc := range newShortcuts {
-		// create and stores the new shortcuts. Update parent field of child shortcuts also
-
+	ret := Importance{
+		edgeDiff:      len(newShortcuts) - neighbors.Size(),
+		contractCost:  contractCost,
+		originalEdges: orgEdgeCount,
 	}
 
-	return Importance{
-		edgeDiff:     edgeDiff,
-		contractCost: contrCost,
-	}, nil
+	if simulated {
+		return ret, nil
+	}
+	d.GeoRepo.PutShortcuts(newShortcuts, transport)
+	d.GeoRepo.PutNodeLevel(id, level, transport)
+	// update the immediate neighbor
+	for _, n := range neighbors.Values() {
+		imp, err := d.contract(n, transport, level+1, importPq, true)
+		if err != nil {
+			return Importance{}, nil
+		}
+		importPq.Push(vertexByImportance{n, calcWeight(imp)})
+	}
+
+	return ret, nil
+}
+
+func calcWeight(imp Importance) float64 {
+	return float64(imp.edgeDiff*edgeDiffWeight +
+		imp.contractCost*contractionCostWeight +
+		imp.originalEdges*originEdgesWeight)
 }
 
 // Internal type used for shortest path finding
@@ -200,41 +263,35 @@ func (v vertexByDistance) Id() GeoPointId {
 
 func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) ([][]GeoPointId, error) {
 	// bidirectional dijkstra
-	fwdDist := ds.NewMap[GeoPointId, float64]()
-	fwdParent := ds.NewMap[GeoPointId, GeoPointId]()
-	fwdVisited := ds.NewSet[GeoPointId]()
-	fwdPq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
-	fwdPq.Push(vertexByDistance{
-		dist: 0,
-		id:   src,
-	})
+	fDist := ds.NewMap[GeoPointId, float64]()
+	fPar := ds.NewMap[GeoPointId, GeoPointId]()
+	fVis := ds.NewSet[GeoPointId]()
+	fPq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
+	fPq.Push(vertexByDistance{src, 0})
 
-	revDist := ds.NewMap[GeoPointId, float64]()
-	revParent := ds.NewMap[GeoPointId, GeoPointId]()
-	revVisited := ds.NewSet[GeoPointId]()
-	revPq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
-	revPq.Push(vertexByDistance{
-		dist: 0,
-		id:   dst,
-	})
+	rDist := ds.NewMap[GeoPointId, float64]()
+	rPar := ds.NewMap[GeoPointId, GeoPointId]()
+	rVis := ds.NewSet[GeoPointId]()
+	rPq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
+	rPq.Push(vertexByDistance{dst, 0})
 
 	// bidirectional dijkstra
-	var commonVertex []GeoPointId
+	var sharedVertices []GeoPointId
 	minDist := math.MaxFloat64
-	for i := 0; !fwdPq.Empty() || !revPq.Empty(); i++ {
-		pq1 := fwdPq
-		d1 := fwdDist
-		v1 := fwdVisited
-		p1 := fwdParent
-		d2 := revDist
-		v2 := revVisited
+	for i := 0; !fPq.Empty() || !rPq.Empty(); i++ {
+		pq1 := fPq
+		d1 := fDist
+		v1 := fVis
+		p1 := fPar
+		d2 := rDist
+		v2 := rVis
 		if i%2 == 1 {
-			pq1 = revPq
-			d1 = revDist
-			v1 = revVisited
-			p1 = revParent
-			d2 = fwdDist
-			v2 = fwdVisited
+			pq1 = rPq
+			d1 = rDist
+			v1 = rVis
+			p1 = rPar
+			d2 = fDist
+			v2 = fVis
 		}
 
 		if pq1.Empty() {
@@ -246,11 +303,11 @@ func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) 
 		}
 		if v2.Contains(v.id) {
 			if v.dist+d2.Get(v.id) < minDist {
-				commonVertex = nil
+				sharedVertices = nil
 				minDist = v.dist + d2.Get(v.id)
 			}
 			if v.dist+d2.Get(v.id) == minDist {
-				commonVertex = append(commonVertex, v.id)
+				sharedVertices = append(sharedVertices, v.id)
 			}
 		}
 		v1.Add(v.id)
@@ -272,28 +329,26 @@ func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) 
 			}
 			d1.Put(e.EndPoint2, newDist)
 			p1.Put(e.EndPoint2, v.id)
-			pq1.Push(vertexByDistance{
-				id:   e.EndPoint2,
-				dist: newDist})
+			pq1.Push(vertexByDistance{e.EndPoint2, newDist})
 		}
 	}
-	if len(commonVertex) == 0 {
+	if len(sharedVertices) == 0 {
 		return nil, nil
 	}
 
 	// path
 	var paths [][]GeoPointId
-	for _, cv := range commonVertex {
+	for _, cv := range sharedVertices {
 		var path []GeoPointId
 		for id := cv; id != src; {
-			parent := fwdParent.Get(id)
+			parent := fPar.Get(id)
 			path = append(path, parent)
 			id = parent
 		}
 		reverse(path)
 
 		for id := cv; id != src; {
-			parent := revParent.Get(id)
+			parent := rPar.Get(id)
 			path = append(path, parent)
 			id = parent
 		}
