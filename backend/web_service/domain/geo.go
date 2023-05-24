@@ -44,16 +44,21 @@ type RoutePoint struct {
 type GeoEdgeId int64
 
 type GeoEdge struct {
-	Id            GeoEdgeId
-	From          GeoPointId
-	To            GeoPointId
-	OriginalEdges int
-	Transport     string
-	Cost          float64
-	TimeCost      int
-	LeftChild     *GeoEdgeId
-	RightChild    *GeoEdgeId
-	MiddleVertex  *GeoPointId
+	Id                 GeoEdgeId
+	From               GeoPointId
+	To                 GeoPointId
+	OriginalEdges      int
+	Transport          string
+	Cost               float64
+	TravelTimeFunction []TravelTime
+	LeftChild          *GeoEdgeId
+	RightChild         *GeoEdgeId
+	MiddleVertex       *GeoPointId
+}
+
+type TravelTime struct {
+	Enter    DateTime
+	TimeCost int
 }
 
 type vertexByImportance struct {
