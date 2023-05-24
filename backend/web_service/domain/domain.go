@@ -88,6 +88,10 @@ func (dt DateTime) add(d Duration) DateTime {
 	return DateTime(time.Time(dt).Add(dur))
 }
 
+func (dt DateTime) diffSec(odt DateTime) int {
+	return int(time.Time(dt).UnixMilli()-time.Time(odt).UnixMilli()) / 1000
+}
+
 type Address struct {
 	Prefecture string `json:"prefecture"`
 	City       string `json:"city"`

@@ -86,9 +86,9 @@ func (d *Domain) PlanTrip(id TripId) (Trip, error) {
 
 	var tripCands []pointOrder
 	if trip.Type == "anon" {
-		tripCands, err = d.topologicalSort(points, *trip.DateExpected, 3)
+		tripCands, err = d.topologicalSort(points, *trip.DateExpected, trip.PreferredMode, 10)
 	} else {
-		tripCands, err = d.topologicalSort(points, *trip.DateExpected, 10)
+		tripCands, err = d.topologicalSort(points, *trip.DateExpected, trip.PreferredMode, 40)
 	}
 
 	var gpids []GeoPointId
@@ -206,7 +206,7 @@ Extract possible solutions to a certain DAG ordering. As the number of solutions
 quite large, we terminate the search when the number of results found thus far exceed lim
 */
 
-func (d *Domain) topologicalSort(points []Point, start DateTime, lim int, transport string) ([]pointOrder, error) {
+func (d *Domain) topologicalSort(points []Point, start DateTime, transport string, lim int) ([]pointOrder, error) {
 	intIds := datastructure.NewMap[PointId, int]()
 	pointIds := datastructure.NewMap[int, PointId]()
 
@@ -248,13 +248,13 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int, transp
 	}
 
 	type OrderedPoint struct {
-		id         PointId
-		geoId      GeoPointId
-		arrival    *PointArrivalConstraint
-		duration   Duration
-		lat        float64
-		lon        float64
-		distToPrev float64
+		id       PointId
+		geoId    GeoPointId
+		arrival  *PointArrivalConstraint
+		duration Duration
+		lat      float64
+		lon      float64
+		cost     float64
 	}
 
 	var ordPoints []OrderedPoint
@@ -282,42 +282,69 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int, transp
 			return t1.before(t2)
 		}
 		if d1 == nil && d2 == nil {
-			return ordPoints[i].distToPrev < ordPoints[j].distToPrev
+			return ordPoints[i].cost < ordPoints[j].cost
 		}
 		return d2 == nil
 	}
 
 	var res []pointOrder
-	var dfs func([]int, []int, DateTime)
-	dfs = func(queue, cur []int, t DateTime) {
+	var dfs func([]int, []int, DateTime) error
+	dfs = func(queue, cur []int, t DateTime) error {
 		if len(res) >= lim {
-			return
+			return nil
 		}
 		if len(queue) == 0 {
 			res = append(res, pointOrder(mapback(cur)))
-			return
+			return nil
 		}
 
 		var queueCopy []int
-		var orgDist []float64
+		var originalCosts []float64
 		defer func() {
-			for i := 0; i < len(queueCopy); i++ {
-				ordPoints[queueCopy[i]].distToPrev = orgDist[i]
+			for i, pt := range queueCopy {
+				ordPoints[pt].cost = originalCosts[i]
 			}
 		}()
 		queueCopy = append(queueCopy, queue...)
-		for i := 0; len(cur) > 0 && i < len(queueCopy); i++ {
-			orgDist = append(orgDist, ordPoints[queueCopy[i]].distToPrev)
-			last := cur[len(cur)-1]
-			// d.shortestPath(ordPoints[last].geoId, ordPoints[queueCopy[i]].geoId, transport)
-			ordPoints[queueCopy[i]].distToPrev = haversine(ordPoints[last].lat, ordPoints[last].lon, ordPoints[queueCopy[i]].lat, ordPoints[queueCopy[i]].lon)
+		var earliestArrival *DateTime
+		for _, pt := range queueCopy {
+			if ordPoints[pt].arrival == nil {
+				continue
+			}
+			if earliestArrival == nil || ordPoints[pt].arrival.Before.before(*earliestArrival) {
+				earliestArrival = &ordPoints[pt].arrival.Before
+			}
+		}
+		maxTransitTime := math.MaxInt
+		if earliestArrival != nil {
+			maxTransitTime = earliestArrival.diffSec(t)
+		}
+		if maxTransitTime <= 0 {
+			return nil
+		}
+
+		for _, pt := range queueCopy {
+			lastPt := cur[len(cur)-1]
+			originalCosts = append(originalCosts, ordPoints[pt].cost)
+			route, err := d.shortestPath(ordPoints[lastPt].geoId, ordPoints[pt].geoId, transport)
+			if err != nil {
+				return err
+			}
+
+			newCost := math.MaxFloat64
+			var routeTransitTime int
+			var routeCost float64
+			for _, e := range route {
+				routeTransitTime += e.TimeCost
+				routeCost += e.Cost
+			}
+			if routeTransitTime < maxTransitTime {
+				newCost = math.Min(newCost, routeCost)
+			}
+			ordPoints[pt].cost = newCost
 		}
 
 		sort.SliceStable(queueCopy, less) // prioritize points with deadline first
-
-		if points[queueCopy[0]].Arrival != nil && t.after(points[queueCopy[0]].Arrival.Before) {
-			return
-		}
 
 		// backtrack
 		for i := 0; i < len(queueCopy); i++ {
@@ -334,7 +361,9 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int, transp
 				}
 			}
 
-			dfs(queueCopy, cur, t.add(points[queueCopy[i]].Duration))
+			if err := dfs(queueCopy, cur, t.add(points[queueCopy[i]].Duration)); err != nil {
+				return err
+			}
 
 			for _, j := range adj[tmp] {
 				indeg[j]++
@@ -344,6 +373,8 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, lim int, transp
 			queueCopy[i] = tmp
 			cur = cur[:len(cur)-1]
 		}
+
+		return nil
 	}
 
 	// prepare first nodes for the backtrack process
