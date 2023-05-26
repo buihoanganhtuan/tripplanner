@@ -6,6 +6,7 @@ import (
 	"time"
 
 	ds "github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructure"
+	"golang.org/x/exp/constraints"
 )
 
 const (
@@ -51,14 +52,15 @@ type GeoEdge struct {
 	Transport          string
 	Cost               float64
 	TravelTimeFunction []TravelTime
+	FixedTravelTime    bool
 	LeftChild          *GeoEdgeId
 	RightChild         *GeoEdgeId
 	MiddleVertex       *GeoPointId
 }
 
 type TravelTime struct {
-	Enter    DateTime
-	TimeCost int
+	At    int
+	Value int
 }
 
 type vertexByImportance struct {
@@ -263,6 +265,88 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *
 	return ret, nil
 }
 
+// This function merges travel time functions (TTFs) of src-mid edge and mid-target edge
+// to create a new TTF for the src-target shortcut. The input TTFs of the input edges are
+// assumed to have FIFO property i.e., t+f(t) < t'+f(t') if t < t'. In other words,
+// it assumes that a later departure from a station cannot arrive earlier than a sooner
+// departure from the same station. Also, it is assumed that the input TTFs are either
+// fixed or periodic with a 1-day period.
+func addEdges(edgeIn, edgeOut GeoEdge) GeoEdge {
+	const minsPerDay = 1440
+	ret := GeoEdge{
+		Id:            -1,
+		From:          edgeIn.From,
+		To:            edgeOut.To,
+		OriginalEdges: edgeIn.OriginalEdges + edgeOut.OriginalEdges,
+		Transport:     edgeIn.Transport,
+		Cost:          edgeIn.Cost + edgeOut.Cost,
+		LeftChild:     &edgeIn.Id,
+		RightChild:    &edgeOut.Id,
+	}
+	if edgeIn.FixedTravelTime && edgeOut.FixedTravelTime {
+		t0 := edgeIn.TravelTimeFunction[0].Value + edgeOut.TravelTimeFunction[0].Value
+		ret.FixedTravelTime = true
+		ret.TravelTimeFunction = []TravelTime{TravelTime{Value: t0}}
+		return ret
+	}
+	ret.FixedTravelTime = false
+	if edgeOut.FixedTravelTime {
+		tmp := make([]TravelTime, len(edgeIn.TravelTimeFunction))
+		t0 := edgeOut.TravelTimeFunction[0].Value
+		for i, t := range edgeIn.TravelTimeFunction {
+			newT := t.Value + t0
+			tmp[i] = TravelTime{At: t.At, Value: newT}
+		}
+		ret.TravelTimeFunction = tmp
+		return ret
+	}
+
+	if edgeIn.FixedTravelTime {
+		tmp := make([]TravelTime, len(edgeOut.TravelTimeFunction))
+		t0 := edgeIn.TravelTimeFunction[0].Value
+		for i, t := range edgeOut.TravelTimeFunction {
+			newT := t.Value + t0
+			tmp[i] = TravelTime{At: (t.At - t0 + 1440) % 1440, Value: newT}
+		}
+		ret.TravelTimeFunction = tmp
+		return ret
+	}
+
+	ttfIn := edgeIn.TravelTimeFunction
+	ttfOut := edgeOut.TravelTimeFunction
+	merged := make([]TravelTime, len(ttfIn))
+
+	var j int
+	for i := 0; i < len(ttfIn); i++ {
+		arr := ttfIn[i].At + ttfIn[i].Value // TODO: transfer time in addition to travel time
+		offset := (arr / 1440) * 1440
+		for j < len(ttfOut) && ttfOut[j].At+offset < arr {
+			j++
+		}
+		if j == len(ttfOut) {
+			offset += 1440
+			j = 0
+		}
+		wait := offset + ttfOut[j].At - arr
+		merged[i] = TravelTime{At: ttfIn[i].At, Value: ttfIn[i].Value + wait + ttfOut[j].Value}
+	}
+	ret.TravelTimeFunction = merged
+
+	return ret
+}
+
+func compareTTFs(ttf1, ttf2 []TravelTime) int {
+	mi1 := math.MaxInt
+	mi2 := math.MaxInt
+	for _, t := range ttf1 {
+		mi1 = min[int](t.Value, mi1)
+	}
+	for _, t := range ttf2 {
+		mi2 = min[int](t.Value, mi2)
+	}
+	return mi1 - mi2
+}
+
 func calcWeight(imp Importance) float64 {
 	return float64(imp.edgeDiff*edgeDiffWeight +
 		imp.contractCost*contractionCostWeight +
@@ -429,4 +513,22 @@ func reverse[T any](arr []T) {
 		i++
 		j--
 	}
+}
+
+func transform[T, V any](arr []T, tfun func(T) V) []V {
+	ret := make([]V, len(arr))
+	for i, e := range arr {
+		ret[i] = tfun(e)
+	}
+	return ret
+}
+
+func min[T constraints.Ordered](arr ...T) T {
+	ret := arr[0]
+	for i := 1; i < len(arr); i++ {
+		if ret > arr[i] {
+			ret = arr[i]
+		}
+	}
+	return ret
 }

@@ -78,9 +78,9 @@ func (dt DateTime) after(odt DateTime) bool {
 func (dt DateTime) add(d Duration) DateTime {
 	var dur time.Duration
 	switch d.Unit {
-	case "hour":
+	case "hours", "hour", "hr", "h":
 		dur = time.Duration(d.Len * int(time.Hour))
-	case "min":
+	case "minutes", "minute", "min", "m":
 		dur = time.Duration(d.Len * int(time.Minute))
 	default:
 		panic("unknown duration unit " + d.Unit)
