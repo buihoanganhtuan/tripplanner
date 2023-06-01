@@ -50,18 +50,16 @@ type GeoEdge struct {
 	From               GeoPointId
 	To                 GeoPointId
 	OriginalEdges      int
-	Transport          string
 	Cost               float64
 	TravelTimeFunction []TravelTime
-	FixedTravelTime    bool
 	LeftChild          *GeoEdgeId
 	RightChild         *GeoEdgeId
 	MiddleVertex       *GeoPointId
 }
 
 type TravelTime struct {
-	At    int
-	Value int
+	At    float64
+	Value float64
 }
 
 type byImportance struct {
