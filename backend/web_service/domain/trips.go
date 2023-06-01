@@ -326,7 +326,7 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, transport strin
 		for _, pt := range queueCopy {
 			lastPt := cur[len(cur)-1]
 			originalCosts = append(originalCosts, ordPoints[pt].cost)
-			route, err := d.shortestPath(ordPoints[lastPt].geoId, ordPoints[pt].geoId, transport)
+			path, err := d.shortestPath(ordPoints[lastPt].geoId, ordPoints[pt].geoId, transport, t)
 			if err != nil {
 				return err
 			}
@@ -334,7 +334,7 @@ func (d *Domain) topologicalSort(points []Point, start DateTime, transport strin
 			newCost := math.MaxFloat64
 			var routeTransitTime int
 			var routeCost float64
-			for _, e := range route {
+			for _, e := range path {
 				routeTransitTime += e.TimeCost
 				routeCost += e.Cost
 			}
@@ -414,9 +414,7 @@ func findCycles(indeg []int, adj [][]int) []cycle {
 
 	ok := true
 	for _, d := range indegCp {
-		if d > 0 {
-			ok = false
-		}
+		ok = ok && d == 0
 	}
 
 	if ok {

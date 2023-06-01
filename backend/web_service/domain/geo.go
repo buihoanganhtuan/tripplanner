@@ -1,12 +1,12 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"time"
 
 	ds "github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructure"
-	"golang.org/x/exp/constraints"
 )
 
 const (
@@ -14,6 +14,7 @@ const (
 	edgeDiffWeight        = 190
 	contractionCostWeight = 1
 	originEdgesWeight     = 600
+	timeEpsilon           = 1e-4
 )
 
 type GeoPoint struct {
@@ -63,17 +64,26 @@ type TravelTime struct {
 	Value int
 }
 
-type vertexByImportance struct {
+type byImportance struct {
 	id         GeoPointId
 	importance float64
 }
 
-func (v vertexByImportance) Less(v1 vertexByImportance) bool {
-	return v.importance < v1.importance
+func (v1 byImportance) Less(v2 byImportance) bool {
+	return v1.importance < v2.importance
 }
 
-func (v vertexByImportance) Id() GeoPointId {
+func (v byImportance) Id() GeoPointId {
 	return v.id
+}
+
+type byArrival struct {
+	id  GeoPointId
+	ttf []TravelTime
+}
+
+func (v1 byArrival) Less(v2 byArrival) bool {
+
 }
 
 func (d *Domain) rebuildHierarchies(transport string) error {
@@ -83,13 +93,13 @@ func (d *Domain) rebuildHierarchies(transport string) error {
 	}
 
 	// Do local search to get initial ordering
-	importPq := ds.NewPriorityQueue[vertexByImportance, GeoPointId]()
+	importPq := ds.NewPriorityQueue[byImportance, GeoPointId]()
 	for _, v := range vertices {
 		imp, err := d.contract(v.Id, transport, 0, importPq, true)
 		if err != nil {
 			return err
 		}
-		importPq.Push(vertexByImportance{v.Id, calcWeight(imp)})
+		importPq.Push(byImportance{v.Id, calcWeight(imp)})
 	}
 
 	// importPq now contains initially ordered vertices. Contraction process starts from here
@@ -104,7 +114,7 @@ func (d *Domain) rebuildHierarchies(transport string) error {
 			if err != nil {
 				return err
 			}
-			importPq.Push(vertexByImportance{curVertex.id, calcWeight(imp)})
+			importPq.Push(byImportance{curVertex.id, calcWeight(imp)})
 			nextVertex := importPq.Peek()
 			if curVertex.id == nextVertex.id {
 				// current vertex is truly the least important
@@ -116,14 +126,14 @@ func (d *Domain) rebuildHierarchies(transport string) error {
 		if lazyCount >= lazyThreshold {
 			then := time.Now()
 			fmt.Printf("[%v] too many lazy updates. Rebuilding the whole remaining queue... \n", then.Format(time.Stamp))
-			newPq := ds.NewPriorityQueue[vertexByImportance, GeoPointId]()
+			newPq := ds.NewPriorityQueue[byImportance, GeoPointId]()
 			for !importPq.Empty() {
 				v := importPq.Poll()
 				imp, err := d.contract(v.id, transport, level, importPq, true)
 				if err != nil {
 					return err
 				}
-				newPq.Push(vertexByImportance{v.id, calcWeight(imp)})
+				newPq.Push(byImportance{v.id, calcWeight(imp)})
 			}
 			importPq = newPq
 			lazyCount = 0
@@ -146,6 +156,7 @@ type Importance struct {
 	edgeDiff      int
 	contractCost  int
 	originalEdges int
+	numSegments   int
 }
 
 // This function performs contraction on a node with the given id. The contraction can be a simulated what-if i.e.,
@@ -153,7 +164,7 @@ type Importance struct {
 // (number of already contracted nodes) to facilitate lazy update but does not actually update anything. The contraction
 // can also be a real contraction, e.g., it actually assigns the current level to the node, add the shortcuts to a persistent
 // storage, update the neighbors, etc, which may affect results of subsequent calls to the function.
-func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *ds.PriorityQueue[vertexByImportance, GeoPointId], simulated bool) (Importance, error) {
+func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *ds.PriorityQueue[byImportance, GeoPointId], simulated bool) (Importance, error) {
 	fEdges, err := d.GeoRepo.EdgesFrom(id, transport)
 	if err != nil {
 		return Importance{}, err
@@ -187,9 +198,9 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *
 		}
 		neighbors.Add(re.From)
 		src := re.From
-		pq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
+		pq := ds.NewPriorityQueue[byDistance, GeoPointId]()
 		dist := ds.NewMap[GeoPointId, distance]()
-		pq.Push(vertexByDistance{src, distance{0, 0}})
+		pq.Push(byDistance{src, distance{0, 0}})
 		dist.Put(src, distance{0, 0})
 		for tgtCount := 0; !pq.Empty(); contractCost++ {
 			v := pq.Poll()
@@ -216,7 +227,7 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *
 					continue
 				}
 				dist.Put(e.To, newDist)
-				pq.Push(vertexByDistance{e.To, newDist})
+				pq.Push(byDistance{e.To, newDist})
 			}
 		}
 		// establish shortcut(s) originating from src
@@ -259,7 +270,7 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *
 		if err != nil {
 			return Importance{}, nil
 		}
-		importPq.Push(vertexByImportance{n, calcWeight(imp)})
+		importPq.Push(byImportance{n, calcWeight(imp)})
 	}
 
 	return ret, nil
@@ -360,14 +371,9 @@ func (d *Domain) updateEdge(edge GeoEdge, transport string) error {
 }
 
 // Internal type used for shortest path finding
-type vertexByDistance struct {
+type byDistance struct {
 	id GeoPointId
 	distance
-}
-
-type distance struct {
-	val  float64
-	time int
 }
 
 func (d distance) less(d2 distance) bool {
@@ -395,27 +401,27 @@ func (d distance) add(d2 distance) distance {
 	}
 }
 
-func (v vertexByDistance) Less(v2 vertexByDistance) bool {
+func (v byDistance) Less(v2 byDistance) bool {
 	return v.distance.less(v2.distance)
 }
 
-func (v vertexByDistance) Id() GeoPointId {
+func (v byDistance) Id() GeoPointId {
 	return v.id
 }
 
-func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) ([]GeoEdge, error) {
+func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string, time DateTime, budget Cost, duration Duration) ([]GeoEdge, error) {
 	// bidirectional dijkstra
 	fDist := ds.NewMap[GeoPointId, distance]()
 	fPar := ds.NewMap[GeoPointId, GeoEdge]()
 	fVis := ds.NewSet[GeoPointId]()
-	fPq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
-	fPq.Push(vertexByDistance{src, distance{0, 0}})
+	fPq := ds.NewPriorityQueue[byDistance, GeoPointId]()
+	fPq.Push(byDistance{src, distance{0, 0}})
 
 	rDist := ds.NewMap[GeoPointId, distance]()
 	rPar := ds.NewMap[GeoPointId, GeoEdge]()
 	rVis := ds.NewSet[GeoPointId]()
-	rPq := ds.NewPriorityQueue[vertexByDistance, GeoPointId]()
-	rPq.Push(vertexByDistance{dst, distance{0, 0}})
+	rPq := ds.NewPriorityQueue[byDistance, GeoPointId]()
+	rPq.Push(byDistance{dst, distance{0, 0}})
 
 	// bidirectional dijkstra
 	var sharedVertex *GeoPointId
@@ -469,7 +475,7 @@ func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) 
 			}
 			d1.Put(e.To, newDist)
 			p1.Put(e.To, e)
-			pq1.Push(vertexByDistance{e.To, newDist})
+			pq1.Push(byDistance{e.To, newDist})
 		}
 	}
 	if sharedVertex == nil {
@@ -505,6 +511,183 @@ func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string) 
 
 }
 
+// Functions to handle piecewise linear functions. The functions must satisfy following conditions:
+//  1. Span the same domain (min time/max time of the two functions must be equal)
+//  2. Values must all be positive, times must be all nonnegative
+//  3. Has no zero-length or overlapping segments
+
+// a segment represents a half-open interval [start, end)
+type segment struct {
+	start      float64
+	end        float64
+	valueStart float64
+	valueEnd   float64
+}
+
+type piecewiseLinearFunc []segment
+
+// g(t) = t + f(t) can be constructed using this function. It is equivalent to g(t) = h(t) + f(t) where h(t) = t
+func addFun(f1, f2 piecewiseLinearFunc, subtract bool) (piecewiseLinearFunc, error) {
+	// ensure that two functions have the same domain
+	if f1[0].start != f2[0].start || f1[len(f1)-1].end != f2[len(f2)-1].end {
+		return nil, errors.New("two functions must have the same domain")
+	}
+	var f piecewiseLinearFunc
+	var i, j int
+	var sgn float64 = 1
+	if subtract {
+		sgn = -1
+	}
+	for i < len(f1) && j < len(f2) {
+		var s1, s2 segment = f1[i], f2[j]
+		a1 := (s1.valueStart - s1.valueEnd) / (s1.start - s1.end)
+		a2 := (s2.valueStart - s2.valueEnd) / (s2.start - s2.end)
+		b1 := s1.valueStart - a1*s1.start
+		b2 := s2.valueStart - a2*s2.start
+		l := max[float64](s1.start, s2.start)
+		r := min[float64](s1.end, s2.end)
+		f = append(f, segment{start: l, end: r, valueStart: (a1+a2)*l + sgn*(b1+b2), valueEnd: (a1+a2)*r + sgn*(b1+b2)})
+		if s1.end < s2.end {
+			i++
+		}
+		if s1.end > s2.end {
+			j++
+		}
+		if s1.end == s2.end {
+			i++
+			j++
+		}
+	}
+	return f, nil
+}
+
+func minimumFun(f1, f2 piecewiseLinearFunc, checkOnly bool) (piecewiseLinearFunc, bool, error) {
+	// ensure that two functions have the same domain
+	if f1[0].start != f2[0].start || f1[len(f1)-1].end != f2[len(f2)-1].end {
+		return nil, false, errors.New("two functions must have the same domain")
+	}
+	var i, j int
+	var f piecewiseLinearFunc
+	var less bool = true
+
+	for i < len(f1) && j < len(f2) {
+		var s1, s2 segment = f1[i], f2[j]
+		a1 := (s1.valueStart - s1.valueEnd) / (s1.start - s1.end)
+		a2 := (s2.valueStart - s2.valueEnd) / (s2.start - s2.end)
+		b1 := s1.valueStart - a1*s1.start
+		b2 := s2.valueStart - a2*s2.start
+		l := max[float64](s1.start, s2.start)
+		r := min[float64](s1.end, s2.end)
+		t := (b1 - b2) / (a2 - a1)
+		if t <= l+timeEpsilon || t >= r-timeEpsilon {
+			// no intersection
+			f = append(f, segment{start: l, end: r, valueStart: min[float64](a1*l+b1, a2*l+b2), valueEnd: min[float64](a1*r+b1, a2*r+b2)})
+		} else {
+			less = false
+			if checkOnly {
+				break
+			}
+			f = append(f, segment{start: l, end: t, valueStart: min[float64](a1*l+b1, a2*l+b2), valueEnd: a1*t + b1}, segment{start: t, end: r, valueStart: a1*t + b1, valueEnd: min[float64](a1*r+b1, a2*r+b2)})
+		}
+		if s1.end < s2.end {
+			i++
+		}
+		if s1.end > s2.end {
+			j++
+		}
+		if s1.end == s2.end {
+			i++
+			j++
+		}
+	}
+	return f, less, nil
+
+}
+
+func composeFun(f1, f2 piecewiseLinearFunc) (piecewiseLinearFunc, error) {
+	// truncate range (y) of f2 so that it is wholly contained by domain (x) of f2
+	mi := f2[0].start + timeEpsilon
+	ma := f2[len(f2)-1].end - timeEpsilon
+	var _f2 piecewiseLinearFunc
+	for _, s := range f2 {
+		a := (s.valueEnd - s.valueStart) / (s.end - s.start)
+		b := s.valueStart - a*s.start
+		if a == 0 {
+			return nil, errors.New("range of a segment from f2 is zero-length")
+		}
+
+		tmin := (mi - b) / a
+		tmax := (ma - b) / a
+		if tmin > tmax {
+			tmin, tmax = tmax, tmin
+		}
+		tmin = max[float64](tmin, s.start)
+		tmax = min[float64](tmax, s.end)
+		if tmin > tmax {
+			continue
+		}
+		_f2 = append(_f2, segment{start: tmin, end: tmax, valueStart: a*tmin + b, valueEnd: a*tmax + b})
+	}
+
+	var f piecewiseLinearFunc
+	for _, s2 := range _f2 {
+		a2 := (s2.valueEnd - s2.valueStart) / (s2.end - s2.start)
+		b2 := s2.valueEnd - a2*s2.end
+		if s2.valueStart < s2.valueEnd {
+			i := lastLeq[segment, float64](f1, s2.valueStart, func(seg segment, val float64) bool {
+				return seg.start <= val
+			})
+			j := lastLeq[segment, float64](f1, s2.valueEnd, func(seg segment, val float64) bool {
+				return seg.end <= val
+			})
+			for i <= j {
+				s1 := f1[i]
+				start := max[float64](s2.valueStart, s1.start)
+				end := min[float64](s2.valueEnd, s1.end)
+				a1 := (s1.valueEnd - s1.valueStart) / (s1.end - s1.start)
+				b1 := s1.valueEnd - a1*s1.end
+				f = append(f, segment{
+					start:      (start - b2) / a2,
+					end:        (end - b2) / a2,
+					valueStart: a1*start + b1,
+					valueEnd:   a1*end + b1,
+				})
+				i++
+			}
+		} else {
+			i := lastLeq[segment, float64](f1, s2.valueStart, func(seg segment, val float64) bool {
+				return seg.start <= val
+			})
+			j := lastLeq[segment, float64](f1, s2.valueEnd, func(seg segment, val float64) bool {
+				return seg.start <= val
+			})
+			for i >= j {
+				s1 := f1[i]
+				start := min[float64](s2.valueStart, s1.end)
+				end := max[float64](s2.valueEnd, s1.start)
+				a1 := (s1.valueEnd - s1.valueStart) / (s1.end - s1.start)
+				b1 := s1.valueEnd - a1*s1.end
+				f = append(f, segment{
+					start:      (start - b2) / a2,
+					end:        (end - b2) / a2,
+					valueStart: a1*start + b1,
+					valueEnd:   a1*end + b1,
+				})
+				i--
+			}
+		}
+	}
+	return f, nil
+}
+
+func minFun(f piecewiseLinearFunc) float64 {
+	v := f[0].valueStart
+	for i := 1; i < len(f); i++ {
+		v = min[float64](v, f[i].valueStart)
+	}
+	return v
+}
+
 func reverse[T any](arr []T) {
 	var i int
 	var j int = len(arr)
@@ -515,15 +698,7 @@ func reverse[T any](arr []T) {
 	}
 }
 
-func transform[T, V any](arr []T, tfun func(T) V) []V {
-	ret := make([]V, len(arr))
-	for i, e := range arr {
-		ret[i] = tfun(e)
-	}
-	return ret
-}
-
-func min[T constraints.Ordered](arr ...T) T {
+func min[T ~int | ~int32 | ~int64 | float32 | float64 | string](arr ...T) T {
 	ret := arr[0]
 	for i := 1; i < len(arr); i++ {
 		if ret > arr[i] {
@@ -531,4 +706,40 @@ func min[T constraints.Ordered](arr ...T) T {
 		}
 	}
 	return ret
+}
+
+func max[T ~int | ~int32 | ~int64 | float32 | float64 | string](arr ...T) T {
+	ret := arr[0]
+	for i := 1; i < len(arr); i++ {
+		if ret < arr[i] {
+			ret = arr[i]
+		}
+	}
+	return ret
+}
+
+func firstGreater[T any, V ~int | ~float64](arr []T, target V, gfun func(T, V) bool) int {
+	var l, r int = 0, len(arr) - 1
+	for l < r {
+		m := (l + r) / 2
+		if gfun(arr[m], target) {
+			r = m
+		} else {
+			l = m + 1
+		}
+	}
+	return l
+}
+
+func lastLeq[T any, V ~int | ~float64](arr []T, target V, leqFun func(T, V) bool) int {
+	var l, r int = 0, len(arr) - 1
+	for l < r {
+		m := (l + r + 1) / 2
+		if leqFun(arr[m], target) {
+			l = m
+		} else {
+			r = m - 1
+		}
+	}
+	return l
 }
