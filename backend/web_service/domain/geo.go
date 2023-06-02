@@ -18,30 +18,15 @@ const (
 )
 
 type GeoPoint struct {
-	Id      GeoPointId     `json:"id"`
-	Level   int            `json:"level"`
-	Lat     float64        `json:"lat"`
-	Lon     float64        `json:"lon"`
-	Name    *string        `json:"name,omitempty"`
-	Address Address        `json:"address"`
-	Tags    []KeyValuePair `json:"tags,omitempty"`
+	Id      GeoPointId `json:"id"`
+	Level   int        `json:"level"`
+	Lat     float64    `json:"lat"`
+	Lon     float64    `json:"lon"`
+	Name    *string    `json:"name,omitempty"`
+	Address Address    `json:"address"`
 }
 
 type GeoPointId string
-
-type Route struct {
-	Id     RouteId        `json:"id"`
-	Oneway bool           `json:"oneway"`
-	Tags   []KeyValuePair `json:"tags,omitempty"`
-}
-
-type RouteId string
-
-type RoutePoint struct {
-	GeoPointId    GeoPointId
-	RouteId       RouteId
-	GeoPointOrder int
-}
 
 type GeoEdgeId int64
 
@@ -196,7 +181,7 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *
 		}
 		neighbors.Add(re.From)
 		src := re.From
-		pq := ds.NewPriorityQueue[byDistance, GeoPointId]()
+		pq := ds.NewPriorityQueue[orderedEdge, GeoEdgeId]()
 		dist := ds.NewMap[GeoPointId, distance]()
 		pq.Push(byDistance{src, distance{0, 0}})
 		dist.Put(src, distance{0, 0})
@@ -239,9 +224,7 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *
 				Id:            -1,
 				From:          src,
 				To:            tgt,
-				Transport:     transport,
 				Cost:          d.val,
-				TimeCost:      d.time,
 				OriginalEdges: fe.OriginalEdges + re.OriginalEdges,
 				LeftChild:     &fe.Id,
 				RightChild:    &re.Id,
@@ -274,88 +257,6 @@ func (d *Domain) contract(id GeoPointId, transport string, level int, importPq *
 	return ret, nil
 }
 
-// This function merges travel time functions (TTFs) of src-mid edge and mid-target edge
-// to create a new TTF for the src-target shortcut. The input TTFs of the input edges are
-// assumed to have FIFO property i.e., t+f(t) < t'+f(t') if t < t'. In other words,
-// it assumes that a later departure from a station cannot arrive earlier than a sooner
-// departure from the same station. Also, it is assumed that the input TTFs are either
-// fixed or periodic with a 1-day period.
-func addEdges(edgeIn, edgeOut GeoEdge) GeoEdge {
-	const minsPerDay = 1440
-	ret := GeoEdge{
-		Id:            -1,
-		From:          edgeIn.From,
-		To:            edgeOut.To,
-		OriginalEdges: edgeIn.OriginalEdges + edgeOut.OriginalEdges,
-		Transport:     edgeIn.Transport,
-		Cost:          edgeIn.Cost + edgeOut.Cost,
-		LeftChild:     &edgeIn.Id,
-		RightChild:    &edgeOut.Id,
-	}
-	if edgeIn.FixedTravelTime && edgeOut.FixedTravelTime {
-		t0 := edgeIn.TravelTimeFunction[0].Value + edgeOut.TravelTimeFunction[0].Value
-		ret.FixedTravelTime = true
-		ret.TravelTimeFunction = []TravelTime{TravelTime{Value: t0}}
-		return ret
-	}
-	ret.FixedTravelTime = false
-	if edgeOut.FixedTravelTime {
-		tmp := make([]TravelTime, len(edgeIn.TravelTimeFunction))
-		t0 := edgeOut.TravelTimeFunction[0].Value
-		for i, t := range edgeIn.TravelTimeFunction {
-			newT := t.Value + t0
-			tmp[i] = TravelTime{At: t.At, Value: newT}
-		}
-		ret.TravelTimeFunction = tmp
-		return ret
-	}
-
-	if edgeIn.FixedTravelTime {
-		tmp := make([]TravelTime, len(edgeOut.TravelTimeFunction))
-		t0 := edgeIn.TravelTimeFunction[0].Value
-		for i, t := range edgeOut.TravelTimeFunction {
-			newT := t.Value + t0
-			tmp[i] = TravelTime{At: (t.At - t0 + 1440) % 1440, Value: newT}
-		}
-		ret.TravelTimeFunction = tmp
-		return ret
-	}
-
-	ttfIn := edgeIn.TravelTimeFunction
-	ttfOut := edgeOut.TravelTimeFunction
-	merged := make([]TravelTime, len(ttfIn))
-
-	var j int
-	for i := 0; i < len(ttfIn); i++ {
-		arr := ttfIn[i].At + ttfIn[i].Value // TODO: transfer time in addition to travel time
-		offset := (arr / 1440) * 1440
-		for j < len(ttfOut) && ttfOut[j].At+offset < arr {
-			j++
-		}
-		if j == len(ttfOut) {
-			offset += 1440
-			j = 0
-		}
-		wait := offset + ttfOut[j].At - arr
-		merged[i] = TravelTime{At: ttfIn[i].At, Value: ttfIn[i].Value + wait + ttfOut[j].Value}
-	}
-	ret.TravelTimeFunction = merged
-
-	return ret
-}
-
-func compareTTFs(ttf1, ttf2 []TravelTime) int {
-	mi1 := math.MaxInt
-	mi2 := math.MaxInt
-	for _, t := range ttf1 {
-		mi1 = min[int](t.Value, mi1)
-	}
-	for _, t := range ttf2 {
-		mi2 = min[int](t.Value, mi2)
-	}
-	return mi1 - mi2
-}
-
 func calcWeight(imp Importance) float64 {
 	return float64(imp.edgeDiff*edgeDiffWeight +
 		imp.contractCost*contractionCostWeight +
@@ -366,45 +267,6 @@ func calcWeight(imp Importance) float64 {
 // is temporarily only, as we'll be occasionally rebuilding the graph
 func (d *Domain) updateEdge(edge GeoEdge, transport string) error {
 	edges, err := d.GeoRepo.AncestorEdges(edge.Id, transport)
-}
-
-// Internal type used for shortest path finding
-type byDistance struct {
-	id GeoPointId
-	distance
-}
-
-func (d distance) less(d2 distance) bool {
-	if d.val == d2.val {
-		return d.time < d2.time
-	}
-	return d.val < d2.val
-}
-
-func (d distance) equal(d2 distance) bool {
-	return d.val == d2.val && d.time == d2.time
-}
-
-func (d distance) lessOrEqual(d2 distance) bool {
-	if d.val == d2.val {
-		return d.time <= d2.time
-	}
-	return d.val < d2.val
-}
-
-func (d distance) add(d2 distance) distance {
-	return distance{
-		val:  d.val + d2.val,
-		time: d.time + d2.time,
-	}
-}
-
-func (v byDistance) Less(v2 byDistance) bool {
-	return v.distance.less(v2.distance)
-}
-
-func (v byDistance) Id() GeoPointId {
-	return v.id
 }
 
 func (d *Domain) shortestPath(src GeoPointId, dst GeoPointId, transport string, time DateTime, budget Cost, duration Duration) ([]GeoEdge, error) {
@@ -523,6 +385,24 @@ type segment struct {
 }
 
 type piecewiseLinearFunc []segment
+
+type orderedEdge struct {
+	id   GeoEdgeId
+	ttf  piecewiseLinearFunc
+	cost piecewiseLinearFunc
+}
+
+func (e orderedEdge) Id() GeoEdgeId {
+	return e.id
+}
+
+func (e orderedEdge) Less(oe orderedEdge) bool {
+	_, ret, err := minimumFun(e.ttf, oe.ttf, true)
+	if err != nil {
+		panic(err)
+	}
+	return ret
+}
 
 // g(t) = t + f(t) can be constructed using this function. It is equivalent to g(t) = h(t) + f(t) where h(t) = t
 func addFun(f1, f2 piecewiseLinearFunc, subtract bool) (piecewiseLinearFunc, error) {
@@ -678,12 +558,14 @@ func composeFun(f1, f2 piecewiseLinearFunc) (piecewiseLinearFunc, error) {
 	return f, nil
 }
 
-func minFun(f piecewiseLinearFunc) float64 {
-	v := f[0].valueStart
-	for i := 1; i < len(f); i++ {
-		v = min[float64](v, f[i].valueStart)
+func minFun(f piecewiseLinearFunc) int {
+	i := 0
+	for j := 1; j < len(f); j++ {
+		if min[float64](f[j].valueEnd, f[j].valueStart) < min[float64](f[i].valueEnd, f[i].valueStart) {
+			i = j
+		}
 	}
-	return v
+	return i
 }
 
 func reverse[T any](arr []T) {
