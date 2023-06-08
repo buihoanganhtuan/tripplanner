@@ -15,7 +15,7 @@ type listNode[K comparable, V any] struct {
 	next *listNode[K, V]
 }
 
-func (c *LruCache[K, V]) get(key K) (V, bool) {
+func (c *LruCache[K, V]) Get(key K) (V, bool) {
 	node, ok := c.m[key]
 	var ret V
 	if !ok {
@@ -26,7 +26,7 @@ func (c *LruCache[K, V]) get(key K) (V, bool) {
 	return node.val, true
 }
 
-func (c *LruCache[K, V]) put(key K, val V) {
+func (c *LruCache[K, V]) Put(key K, val V) {
 	node, ok := c.m[key]
 	if !ok {
 		node = &listNode[K, V]{key: key, val: val}

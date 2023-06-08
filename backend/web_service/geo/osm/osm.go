@@ -1,26 +1,29 @@
 package osm
 
 import (
+	"context"
 	"database/sql"
-	"errors"
-	"fmt"
 	"math"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructure"
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/domain"
 	"github.com/paulmach/osm"
+	"github.com/paulmach/osm/osmpbf"
 )
 
 type OsmGeo struct {
 	Domain       domain.Domain
 	GeospatialDb *sql.DB
-	GraphDb      *sql.DB
+	dbLock       sync.Mutex
 }
 
-type OsmNodeId int64
-type OsmWayId int64
-type OsmRelationId int64
+type osmNodeId int64
+type osmWayId int64
+type osmRelationId int64
 
 const (
 	latBits = 20
@@ -79,14 +82,34 @@ func (o *OsmGeo) EdgesTo(id domain.GeoPointId, transport string) ([]domain.GeoEd
 	}
 }
 
+func (o *OsmGeo) createWalkMap(pbfFile string) error {
+	file, err := os.Open(pbfFile)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := osmpbf.New(context.Background(), file, 3)
+	scanner.SkipNodes = true
+	scanner.SkipRelations = true
+	scanner.FilterWay = isWalkableWay
+	defer scanner.Close()
+
+	graphVertices := datastructure.NewLruCache[osmNodeId, domain.GeoPointId](1000000)
+	for scanner.Scan() {
+		nodeIds := scanner.Object().(*osm.Way).Nodes.NodeIDs()
+
+	}
+}
+
 // sometimes a bus stop node is not connected to any way in/out. This function
 // aims to remedy that by binding it to the nearest platform (way), which is supposedly
 // connected to the outside world
-func (o *OsmGeo) nearestBusPlatforms(relId OsmRelationId, wayId OsmWayId, lim float64) (int64, error) {
+func (o *OsmGeo) stopsOrder(relId osmRelationId, wayId osmWayId, lim float64) ([]osmNodeId, error) {
 	// get all nodes belonging to the same relation
 	rows, err := o.GeospatialDb.Query(`
 		SELECT
-			g.id AS id, ST_Distance(g.geom::geography, t.geom::geography) AS dist
+			g.id AS id
 		FROM
 			(
 				SELECT 
@@ -98,7 +121,7 @@ func (o *OsmGeo) nearestBusPlatforms(relId OsmRelationId, wayId OsmWayId, lim fl
 						FROM
 							osm.relation_members
 						WHERE
-							relation_id = $1 AND member_type = 'N' AND (member_role = 'stop' OR member_role = 'platform')
+							relation_id = $1 AND member_type = 'N'
 					) n
 				JOIN
 					geospatial.points p
@@ -110,26 +133,25 @@ func (o *OsmGeo) nearestBusPlatforms(relId OsmRelationId, wayId OsmWayId, lim fl
 		WHERE
 			ST_DWithin(g.geom::geography, t.geom::geography, $3)
 		ORDER BY
-			ST_Distance(g.geom::geography, t.geom::geography)
-		LIMIT
-			1
+			ST_LineLocatePoint(t.geom, g.geom)
 	`, int64(relId), int64(wayId), lim)
 
+	var res []osmNodeId
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	var resId int64 = -1
-	var dist float64
 	for rows.Next() {
-		rows.Scan(&resId, &dist)
+		var nodeId int64
+		rows.Scan(&nodeId)
+		res = append(res, osmNodeId(nodeId))
 	}
 	if rows.Err() != nil {
-		return 0, rows.Err()
+		return nil, rows.Err()
 	}
-	return resId, nil
+	return res, nil
 }
 
-func (o *OsmGeo) nearestEntrance(nodeId OsmNodeId, subway bool, lim float64) (int64, error) {
+func (o *OsmGeo) entrances(nodeId osmNodeId, subway bool, lim float64) ([]osmNodeId, error) {
 	entKw := "train_station_entrance"
 	if subway {
 		entKw = "subway_entrance"
@@ -138,30 +160,26 @@ func (o *OsmGeo) nearestEntrance(nodeId OsmNodeId, subway bool, lim float64) (in
 		SELECT
 			osm_id AS id,
 		FROM
-			geospatial.points
+			geospatial.points p
 		CROSS JOIN
-			(SELECT geom FROM osm.nodes WHERE id = $1)
+			(SELECT geom FROM osm.nodes WHERE id = $1) n
 		WHERE
-			other_tags @> '"railway"=>"$2"'::hstore AND ST_DWithin(wkb_geometry::geography, geom::geography, $3)
-		ORDER BY
-			ST_Distance(wkb_geometry::geography, geom)
-		LIMIT 1
+			p.other_tags @> '"railway"=>"$2"'::hstore AND ST_DWithin(p.wkb_geometry::geography, n.geom::geography, $3)
 	`, int64(nodeId), entKw, lim)
 
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	var resId int64 = -1
+	var res []osmNodeId
 	for rows.Next() {
-		rows.Scan(&resId)
+		var id int64
+		rows.Scan(&id)
+		res = append(res, osmNodeId(id))
 	}
 	if rows.Err() != nil {
-		return 0, rows.Err()
+		return nil, rows.Err()
 	}
-	if resId == -1 {
-		return 0, errors.New(fmt.Sprintf("no exits within %v meters found for node %v", lim, nodeId))
-	}
-	return resId, nil
+	return res, nil
 }
 
 // helper functions
