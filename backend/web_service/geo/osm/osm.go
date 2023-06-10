@@ -3,6 +3,7 @@ package osm
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math"
 	"os"
 	"strconv"
@@ -21,14 +22,15 @@ type OsmGeo struct {
 	dbLock       sync.Mutex
 }
 
+const (
+	walkingSpeed = 3.
+)
+
 type osmNodeId int64
 type osmWayId int64
 type osmRelationId int64
-
-const (
-	latBits = 20
-	lonBits = 21
-)
+type vertexId int64
+type edgeId int64
 
 // Contract implementation
 
@@ -95,16 +97,141 @@ func (o *OsmGeo) createWalkMap(pbfFile string) error {
 	scanner.FilterWay = isWalkableWay
 	defer scanner.Close()
 
-	graphVertices := datastructure.NewLruCache[osmNodeId, domain.GeoPointId](1000000)
 	for scanner.Scan() {
-		nodeIds := scanner.Object().(*osm.Way).Nodes.NodeIDs()
+		way := scanner.Object().(*osm.Way)
+		// get distance between consecutive points in this way
+		rows, err := o.GeospatialDb.Query(`
+			WITH nodes AS (
+				SELECT 
+					node_id, sequence_id, wkb_geometry
+				FROM
+					(
+						SELECT
+							node_id, sequence_id
+						FROM
+							osm.way_nodes
+						WHERE
+							way_id = $1
+					) n
+				JOIN
+					geospatial.points p
+				ON
+					n.node_id = p.osm_id
+				ORDER BY
+					sequence_id
+			)
+			SELECT
+				node_id AS node_1,
+				LAG(node_id, 1) OVER (ORDER BY sequence_id) AS node_2,
+				ST_DistanceSphere(wkb_geometry, LAG(wkb_geometry, 1) OVER (ORDER BY sequence_id)) AS distance
+			FROM
+				nodes
+		`, way.ID)
+		if err != nil {
+			return err
+		}
+		distance := datastructure.NewMap[[2]osmNodeId, float64]()
+		// skip the first row since there is no node before the first node
+		rows.Next()
+		for rows.Next() {
+			var node1, node2 osmNodeId
+			var dist float64
+			if err = rows.Scan(&node1, &node2, &dist); err != nil {
+				return err
+			}
+			distance.Put([2]osmNodeId{node1, node2}, dist)
+			distance.Put([2]osmNodeId{node2, node1}, dist)
+		}
+
+		// create all the vertices if not yet exist and get the vertices id back
+		nodeIds := way.Nodes.NodeIDs()
+		idStr := stringify[osm.NodeID](nodeIds, func(id osm.NodeID) string { return "(" + strconv.FormatInt(int64(id), 10) + ")" })
+		rows, err = o.GeospatialDb.Query(`
+			INSERT INTO
+				readonly_walk_graph.vertices (osm_node_id) 
+			VALUES
+				$1
+			ON CONFLICT
+				osm_node_id
+			DO NOTHING
+			RETURNING
+				vertex_id, osm_node_id
+		`, strings.Join(idStr, ","))
+		if err != nil {
+			return err
+		}
+		vertexIds := datastructure.NewMap[osmNodeId, vertexId]()
+		for rows.Next() {
+			var osmId osmNodeId
+			var vertexId vertexId
+			if err = rows.Scan(&vertexId, &osmId); err != nil {
+				return err
+			}
+			vertexIds.Put(osmId, vertexId)
+		}
+
+		// create edges with fixed time cost
+		var edges []string
+		for i := 0; i < len(nodeIds)-1; i++ {
+			node1 := osmNodeId(nodeIds[i])
+			node2 := osmNodeId(nodeIds[i+1])
+			dist, ok := distance.GetIfPresent([2]osmNodeId{node1, node2})
+			if !ok {
+				return fmt.Errorf("no distance info between osm node %v and %v", node1, node2)
+			}
+			edges = append(edges, fmt.Sprintf("(%v, %v, %v)", vertexIds.Get(node1), vertexIds.Get(node2), dist/walkingSpeed))
+			edges = append(edges, fmt.Sprintf("(%v, %v, %v)", vertexIds.Get(node2), vertexIds.Get(node1), dist/walkingSpeed))
+		}
+		_, err = o.GeospatialDb.Exec(`
+			INSERT INTO
+				readonly_walk_graph.edges (from_vertex, to_vertex, time_cost) 
+			VALUES
+				$1
+			ON CONFLICT
+				osm_node_id
+			DO NOTHING
+			RETURNING
+				vertex_id, osm_node_id			
+		`, strings.Join(edges, ","))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (o *OsmGeo) createBusMap(pbfFile string) error {
+	file, err := os.Open(pbfFile)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := osmpbf.New(context.Background(), file, 3)
+	scanner.SkipNodes = true
+	scanner.SkipWays = true
+	scanner.FilterRelation = isBusRoute
+	defer scanner.Close()
+
+	for scanner.Scan() {
+		relation := scanner.Object().(*osm.Relation)
+		// double check that the stop order provided by the relation itself and
+		// the stop order produced from way order matches.
+		var stops, calcStops []osmNodeId
+		var ways []osmWayId
+		for _, member := range []osm.Member(relation.Members) {
+			if strings.Contains(member.Role, "platform") {
+				stops = append(stops, osmNodeId(member.ElementID().NodeID()))
+			}
+			if member.Type == osm.TypeWay {
+				ways = append(ways, osmWayId(member.ElementID().WayID()))
+			}
+		}
 
 	}
 }
 
-// sometimes a bus stop node is not connected to any way in/out. This function
-// aims to remedy that by binding it to the nearest platform (way), which is supposedly
-// connected to the outside world
 func (o *OsmGeo) stopsOrder(relId osmRelationId, wayId osmWayId, lim float64) ([]osmNodeId, error) {
 	// get all nodes belonging to the same relation
 	rows, err := o.GeospatialDb.Query(`
