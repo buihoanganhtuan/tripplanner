@@ -45,9 +45,6 @@ type GeoRepo interface {
 	PutNodeLevel(id GeoPointId, level int, transport string) error
 }
 
-type TrafficRepo interface {
-}
-
 type Api interface {
 	GetUser(id UserId) (User, error)
 	CreateUser(u User) (User, error)
@@ -57,10 +54,9 @@ type Api interface {
 }
 
 type Domain struct {
-	Repo        Repo
-	GeoRepo     GeoRepo
-	TrafficRepo TrafficRepo
-	Api         Api
+	Repo    Repo
+	GeoRepo GeoRepo
+	Api     Api
 }
 
 type TransactionId string

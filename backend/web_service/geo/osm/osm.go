@@ -201,37 +201,6 @@ func (o *OsmGeo) createWalkMap(pbfFile string) error {
 	return nil
 }
 
-func (o *OsmGeo) createBusMap(pbfFile string) error {
-	file, err := os.Open(pbfFile)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	scanner := osmpbf.New(context.Background(), file, 3)
-	scanner.SkipNodes = true
-	scanner.SkipWays = true
-	scanner.FilterRelation = isBusRoute
-	defer scanner.Close()
-
-	for scanner.Scan() {
-		relation := scanner.Object().(*osm.Relation)
-		// double check that the stop order provided by the relation itself and
-		// the stop order produced from way order matches.
-		var stops, calcStops []osmNodeId
-		var ways []osmWayId
-		for _, member := range []osm.Member(relation.Members) {
-			if strings.Contains(member.Role, "platform") {
-				stops = append(stops, osmNodeId(member.ElementID().NodeID()))
-			}
-			if member.Type == osm.TypeWay {
-				ways = append(ways, osmWayId(member.ElementID().WayID()))
-			}
-		}
-
-	}
-}
-
 func (o *OsmGeo) stopsOrder(relId osmRelationId, wayId osmWayId, lim float64) ([]osmNodeId, error) {
 	// get all nodes belonging to the same relation
 	rows, err := o.GeospatialDb.Query(`
