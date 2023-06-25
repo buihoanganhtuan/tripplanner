@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/buihoanganhtuan/tripplanner/backend/web_service/datastructure"
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/domain"
 )
 
@@ -278,15 +279,15 @@ func (o *Odpt) processBus(busTimeTableFile string) error {
 			query.WriteString(delim)
 			delim = ","
 			if timeTableObject.ArrivalTime == nil && timeTableObject.DepartureTime == nil {
-				o.Logger.Printf("timetable %s, stop %s: Stop with no arrival time and departure time \n", timeTable.Id, timeTableObject.BusStopId)
+				o.Logger.Printf("processBus, timetable %s, stop %s: Stop with no arrival time and departure time \n", timeTable.Id, timeTableObject.BusStopId)
 				break
 			}
 			if timeTableObject.DepartureTime == nil && i < len(timeTable.BusTimeTableObject)-1 {
-				o.Logger.Printf("timetable %s, stop %s: Non-terminal stop with no departure time \n")
+				o.Logger.Printf("processBus, timetable %s, stop %s: Non-terminal stop with no departure time \n", timeTable.Id, timeTableObject.BusStopId)
 				break
 			}
 			if timeTableObject.ArrivalTime == nil && i == len(timeTable.BusTimeTableObject)-1 {
-				o.Logger.Printf("timetable %s, stop %s: Last stop with no arrival time \n")
+				o.Logger.Printf("processBus, timetable %s, stop %s: Last stop with no arrival time \n", timeTable.Id, timeTableObject.BusStopId)
 				break
 			}
 			if i == len(timeTable.BusTimeTableObject)-1 {
@@ -314,10 +315,8 @@ func (o *Odpt) processBus(busTimeTableFile string) error {
 	if _, err = dec.Token(); err != nil {
 		return err
 	}
-	return nil
-}
 
-func (o *Odpt) assertFIFO() error {
+	// assert that each route is FIFO and split if not
 	rows, err := o.GeospatialDb.Query(`SELECT DISTINCT bus_route_id FROM  ORDER BY bus_route_id`)
 	if err != nil {
 		return err
@@ -330,13 +329,63 @@ func (o *Odpt) assertFIFO() error {
 	}
 
 	var i atomic.Int32
+}
 
-	go func() {
-		idx := i.Add(1)
-		rows, err := o.GeospatialDb.Query(`SELECT  FROM  WHERE bus_route_id = $1 ORDER BY departure_time`, routeIds[idx])
-		if err != nil {
-			o.Logger.Printf("")
-			return
+func (o *Odpt) assertFIFO(routeId string) error {
+	rows, err := o.GeospatialDb.Query(`SELECT  FROM  WHERE bus_route_id = $1 ORDER BY departure_time`, routeId)
+	if err != nil {
+		o.Logger.Printf("assertFIFO, error fetching data for route %s: %v \n", routeId, err)
+		return err
+	}
+
+	type Element struct {
+		departure int
+		arrival   int
+		busId     string
+	}
+	weekdayTimeFunc := datastructure.NewMap[string, []Element]()
+	holidayTimeFunc := datastructure.NewMap[string, []Element]()
+
+	for rows.Next() {
+		var e Element
+		var from, to, validity string
+		if err = rows.Scan(&e.busId, &from, &to, &e.departure, &e.arrival, &validity); err != nil {
+			o.Logger.Printf("assertFIFO, error scanning row %v \n", err)
+			return err
 		}
-	}()
+		var timeFunc *datastructure.Map[string, []Element]
+		switch strings.ToLower(validity) {
+		case "weekday":
+			timeFunc = weekdayTimeFunc
+		case "holiday":
+			timeFunc = holidayTimeFunc
+		default:
+			o.Logger.Printf("assertFIFO, unknown validity string %s \n", validity)
+			return fmt.Errorf("unknown validity string %s", validity)
+		}
+		conn := from + "=>" + to
+		arr := timeFunc.GetOrDefault(conn, nil)
+		arr = append(arr, e)
+		timeFunc.Put(conn, arr)
+	}
+
+	exclusive := datastructure.NewSet[string]()
+	numBuses := -1
+	for _, conn := range weekdayTimeFunc.Keys() {
+		arr := weekdayTimeFunc.Get(conn)
+		if numBuses < 0 {
+			numBuses = len(arr)
+		}
+		if numBuses != len(arr) {
+			o.Logger.Printf("assertFIFO, route %s, connection %s has different number of buses (%v vs %v)", routeId, conn, len(arr), numBuses)
+		}
+		for i := 1; i < len(arr); i++ {
+			if arr[i].arrival >= arr[i-1].arrival {
+				continue
+			}
+			exclusive.Add(arr[i].busId + ";" + arr[i-1].busId)
+			o.Logger.Printf("assertFIFO, route %s, connection %s, bus %s departs later than bus %s but arrive earlier \n", routeId, conn, arr[i].busId, arr[i-1].busId)
+		}
+	}
+
 }
