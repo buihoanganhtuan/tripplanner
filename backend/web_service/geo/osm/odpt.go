@@ -3,7 +3,11 @@ package osm
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"log"
 	"os"
+	"strings"
+	"sync/atomic"
 
 	"github.com/buihoanganhtuan/tripplanner/backend/web_service/domain"
 )
@@ -11,6 +15,7 @@ import (
 type Odpt struct {
 	Domain       domain.Domain
 	GeospatialDb *sql.DB
+	Logger       *log.Logger
 }
 
 type OdptJsonLdCommon struct {
@@ -244,22 +249,65 @@ type OdptTrain struct {
 
 // This function extracts the bus stops stored in the odpt bus stop json file
 // and store them in database
-func (o *Odpt) processBusStops(odptBusStopFile string) error {
-	file, err := os.Open(odptBusStopFile)
+func (o *Odpt) processBus(busTimeTableFile string) error {
+	file, err := os.Open(busTimeTableFile)
 	if err != nil {
 		return err
 	}
 	dec := json.NewDecoder(file)
 	// Read opening bracket
 	if _, err = dec.Token(); err != nil {
+		o.Logger.Printf("Error reading the first json token in array: %v \n", err)
 		return err
 	}
+	var query strings.Builder
+	prefix := fmt.Sprintf(`INSERT INTO   VALUES `)
+	delim := ""
+	query.WriteString(prefix)
 	for dec.More() {
-		var busStop OdptBusStop
-		if err = dec.Decode(&busStop); err != nil {
+		var timeTable OdptBusTimeTable
+		if err = dec.Decode(&timeTable); err != nil {
 			return err
 		}
-
+		if timeTable.Id == "" {
+			o.Logger.Print("Unknown timetable id \n")
+			return fmt.Errorf("Unknown timetable id")
+		}
+		validity := strings.TrimPrefix(timeTable.CalendarId, "odpt.Calendar:")
+		for i, timeTableObject := range timeTable.BusTimeTableObject {
+			query.WriteString(delim)
+			delim = ","
+			if timeTableObject.ArrivalTime == nil && timeTableObject.DepartureTime == nil {
+				o.Logger.Printf("timetable %s, stop %s: Stop with no arrival time and departure time \n", timeTable.Id, timeTableObject.BusStopId)
+				break
+			}
+			if timeTableObject.DepartureTime == nil && i < len(timeTable.BusTimeTableObject)-1 {
+				o.Logger.Printf("timetable %s, stop %s: Non-terminal stop with no departure time \n")
+				break
+			}
+			if timeTableObject.ArrivalTime == nil && i == len(timeTable.BusTimeTableObject)-1 {
+				o.Logger.Printf("timetable %s, stop %s: Last stop with no arrival time \n")
+				break
+			}
+			if i == len(timeTable.BusTimeTableObject)-1 {
+				break
+			}
+			nextTimeTableObject := timeTable.BusTimeTableObject[i+1]
+			from := timeTableObject.BusStopId
+			to := nextTimeTableObject.BusStopId
+			departure := timeTableObject.DepartureTime
+			arrival := nextTimeTableObject.DepartureTime
+			if nextTimeTableObject.ArrivalTime != nil {
+				arrival = nextTimeTableObject.ArrivalTime
+			}
+			query.WriteString(fmt.Sprintf(`(%s,%s,%s,%s,%s,%s,%s)`, timeTable.BusRouteId, timeTable.Id, from, to, *departure, *arrival, validity))
+		}
+		if query.Len() > 1_000_000 {
+			_, err = o.GeospatialDb.Exec(query.String())
+			query.Reset()
+			query.WriteString(prefix)
+			delim = ""
+		}
 	}
 
 	// read closing bracket
@@ -267,4 +315,28 @@ func (o *Odpt) processBusStops(odptBusStopFile string) error {
 		return err
 	}
 	return nil
+}
+
+func (o *Odpt) assertFIFO() error {
+	rows, err := o.GeospatialDb.Query(`SELECT DISTINCT bus_route_id FROM  ORDER BY bus_route_id`)
+	if err != nil {
+		return err
+	}
+	var routeIds []string
+	for rows.Next() {
+		var routeId string
+		rows.Scan(&routeId)
+		routeIds = append(routeIds, routeId)
+	}
+
+	var i atomic.Int32
+
+	go func() {
+		idx := i.Add(1)
+		rows, err := o.GeospatialDb.Query(`SELECT  FROM  WHERE bus_route_id = $1 ORDER BY departure_time`, routeIds[idx])
+		if err != nil {
+			o.Logger.Printf("")
+			return
+		}
+	}()
 }
